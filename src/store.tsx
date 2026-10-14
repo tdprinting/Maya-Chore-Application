@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Backend, Change, Membership } from './backend'
-import { balance, byNewest, dayKey, nowIso, ofKind, pointsFor, uid } from './logic'
+import { balance, byNewest, dayKey, nowIso, ofKind, pointsFor, stableKey, uid } from './logic'
 import { defaultSettings } from './seed'
 import type { ChatMessage, Chore, Item, LedgerEntry, Order, OrderStatus, Prize, Settings, Submission, Wish } from './types'
 
@@ -24,7 +24,7 @@ export interface FamilyData {
   balance: number
 }
 
-function derive(items: Record<string, Item>): FamilyData {
+export function derive(items: Record<string, Item>): FamilyData {
   const all = Object.values(items)
   const ledger = ofKind(all, 'ledger').sort(byNewest)
   return {
@@ -41,17 +41,39 @@ function derive(items: Record<string, Item>): FamilyData {
   }
 }
 
-function makeActions(backend: Backend, get: () => FamilyData, apply: (c: Change) => void) {
+/** What the actions need from the store: the latest data, and a way to change it right away. */
+interface LocalStore {
+  get: () => FamilyData
+  /** Applies a change on this device straight away and returns the item it replaced. */
+  apply: (c: Change) => Item | undefined
+  /** Puts an item back the way it was before a write that failed. */
+  restore: (id: string, previous: Item | undefined) => void
+}
+
+export function makeActions(backend: Backend, store: LocalStore) {
+  const { get } = store
+  // Every write shows up on this device immediately (so a second tap already sees the new
+  // balance), then goes to the backend. If the backend refuses it, the change is undone.
   const put = async (item: Item) => {
-    apply({ type: 'put', item })
-    await backend.put(item)
+    const previous = store.apply({ type: 'put', item })
+    try {
+      await backend.put(item)
+    } catch (e) {
+      store.restore(item.id, previous)
+      throw e
+    }
   }
   const remove = async (id: string) => {
-    apply({ type: 'remove', id })
-    await backend.remove(id)
+    const previous = store.apply({ type: 'remove', id })
+    try {
+      await backend.remove(id)
+    } catch (e) {
+      store.restore(id, previous)
+      throw e
+    }
   }
-  const ledger = (amount: number, reason: string, emoji: string, refId?: string): LedgerEntry => ({
-    id: uid(),
+  const ledger = (amount: number, reason: string, emoji: string, refId?: string, id: string = uid()): LedgerEntry => ({
+    id,
     kind: 'ledger',
     amount,
     reason,
@@ -59,6 +81,7 @@ function makeActions(backend: Backend, get: () => FamilyData, apply: (c: Change)
     refId,
     createdAt: nowIso(),
   })
+  const latest = <T extends { id: string }>(list: T[], item: T): T | undefined => list.find((x) => x.id === item.id)
 
   return {
     put,
@@ -104,18 +127,26 @@ function makeActions(backend: Backend, get: () => FamilyData, apply: (c: Change)
       return sub
     },
 
+    /** Approves once: a double tap, "Approve all" or a second parent can't pay out twice. */
     async approveSubmission(sub: Submission, points: number, parentNote?: string) {
-      await put({ ...sub, status: 'approved', pointsAwarded: points, parentNote: parentNote || undefined, reviewedAt: nowIso() })
-      const label = sub.type === 'homework' ? `School star: ${sub.title}` : sub.title
-      await put(ledger(points, label, sub.emoji, sub.id))
+      const current = latest(get().submissions, sub)
+      if (!current || current.status !== 'pending') return
+      const label = current.type === 'homework' ? `School star: ${current.title}` : current.title
+      await Promise.all([
+        put({ ...current, status: 'approved', pointsAwarded: points, parentNote: parentNote || undefined, reviewedAt: nowIso() }),
+        put(ledger(points, label, current.emoji, current.id, `award-${current.id}`)),
+      ])
     },
 
     async rejectSubmission(sub: Submission, parentNote?: string) {
-      await put({ ...sub, status: 'rejected', parentNote: parentNote || undefined, reviewedAt: nowIso() })
+      const current = latest(get().submissions, sub)
+      if (!current || current.status !== 'pending') return
+      await put({ ...current, status: 'rejected', parentNote: parentNote || undefined, reviewedAt: nowIso() })
     },
 
     async buyPrize(prize: Prize) {
-      if (get().balance < prize.points) throw new Error('Not enough stars yet')
+      const d = get()
+      if (d.balance < prize.points) throw new Error('Not enough stars yet')
       const order: Order = {
         id: uid(),
         kind: 'order',
@@ -128,18 +159,23 @@ function makeActions(backend: Backend, get: () => FamilyData, apply: (c: Change)
         status: 'requested',
         createdAt: nowIso(),
       }
-      await put(order)
-      await put(ledger(-prize.points, `Bought: ${prize.title}`, prize.emoji, order.id))
-      const s = get().settings
-      if (s.goalPrizeId === prize.id) await put({ ...s, goalPrizeId: undefined })
+      // The order and the payment land together, before anything waits on the network.
+      const writes = [put(order), put(ledger(-prize.points, `Bought: ${prize.title}`, prize.emoji, order.id, `buy-${order.id}`))]
+      if (d.settings.goalPrizeId === prize.id) writes.push(put({ ...d.settings, goalPrizeId: undefined }))
+      await Promise.all(writes)
       return order
     },
 
     async updateOrder(order: Order, status: OrderStatus, parentNote?: string) {
-      await put({ ...order, status, parentNote: parentNote ?? order.parentNote, updatedAt: nowIso() })
-      if (status === 'declined' && order.status !== 'declined') {
-        await put(ledger(order.points, `Refund: ${order.title}`, '↩️', `refund:${order.id}`))
+      const d = get()
+      const current = latest(d.orders, order)
+      if (!current || current.status === status || current.status === 'declined') return
+      const writes = [put({ ...current, status, parentNote: parentNote || current.parentNote, updatedAt: nowIso() })]
+      const refundId = `refund:${current.id}`
+      if (status === 'declined' && !d.ledger.some((e) => e.refId === refundId)) {
+        writes.push(put(ledger(current.points, `Refund: ${current.title}`, '↩️', refundId, `refund-${current.id}`)))
       }
+      await Promise.all(writes)
     },
 
     async submitWish(w: { title: string; link?: string; price?: number; note?: string; photo?: Blob }) {
@@ -158,25 +194,28 @@ function makeActions(backend: Backend, get: () => FamilyData, apply: (c: Change)
       return wish
     },
 
-    async approveWish(wish: Wish, points: number, emoji: string, title: string) {
+    async approveWish(wish: Wish, points: number, emoji: string, title: string, parentNote?: string) {
+      const current = latest(get().wishes, wish)
+      if (!current || current.status !== 'pending') return
       const prize: Prize = {
         id: uid(),
         kind: 'prize',
         title,
         emoji,
-        link: wish.link,
-        photo: wish.photo,
-        price: wish.price,
+        link: current.link,
+        photo: current.photo,
+        price: current.price,
         points,
         active: true,
         createdAt: nowIso(),
       }
-      await put(prize)
-      await put({ ...wish, status: 'added' })
+      await Promise.all([put(prize), put({ ...current, status: 'added', parentNote: parentNote || undefined })])
     },
 
     async declineWish(wish: Wish, parentNote?: string) {
-      await put({ ...wish, status: 'declined', parentNote: parentNote || undefined })
+      const current = latest(get().wishes, wish)
+      if (!current || current.status !== 'pending') return
+      await put({ ...current, status: 'declined', parentNote: parentNote || undefined })
     },
 
     async adjustPoints(amount: number, reason: string) {
@@ -213,78 +252,187 @@ interface StoreValue {
 
 const StoreContext = createContext<StoreValue | null>(null)
 
+/** How long this device remembers its own writes, to recognise their realtime echoes. */
+const ECHO_WINDOW_MS = 60_000
+/** Reload everything when the app comes back after being hidden this long (realtime misses changes while asleep). */
+const RESYNC_AFTER_MS = 20_000
+
 export function StoreProvider({ backend, membership, children }: { backend: Backend; membership: Membership; children: ReactNode }) {
   const itemsRef = useRef<Record<string, Item>>({})
   const [version, setVersion] = useState(0)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string>()
   const [events, setEvents] = useState<FamilyEvent[]>([])
-  const dataRef = useRef<FamilyData>(derive({}))
-  // Ids this device just wrote, so their realtime echoes don't show up as news.
-  const localWrites = useRef(new Map<string, number>())
+  const cache = useRef<{ items: Record<string, Item>; data: FamilyData } | null>(null)
+  // What this device just wrote (content keys, newest last), so realtime echoes of our own
+  // writes don't show up as news and stale echoes don't undo a newer local change.
+  const localWrites = useRef(new Map<string, { at: number; keys: string[] }>())
 
-  const data = useMemo(() => {
-    dataRef.current = derive(itemsRef.current)
-    return dataRef.current
-  }, [version])
+  /** Derived data for the current items, computed at most once per change. */
+  const getData = useCallback(() => {
+    if (!cache.current || cache.current.items !== itemsRef.current) {
+      cache.current = { items: itemsRef.current, data: derive(itemsRef.current) }
+    }
+    return cache.current.data
+  }, [])
+
+  // `version` changes whenever itemsRef does; getData only re-derives when the items changed.
+  const data = useMemo(() => getData(), [version, getData])
 
   const actions = useMemo(() => {
-    const apply = (c: Change) => {
-      localWrites.current.set(c.type === 'put' ? c.item.id : c.id, Date.now())
-      if (c.type === 'put') itemsRef.current = { ...itemsRef.current, [c.item.id]: c.item }
-      else {
-        const next = { ...itemsRef.current }
-        delete next[c.id]
-        itemsRef.current = next
-      }
-      dataRef.current = derive(itemsRef.current)
+    const setItem = (id: string, item: Item | undefined) => {
+      const next = { ...itemsRef.current }
+      if (item) next[id] = item
+      else delete next[id]
+      itemsRef.current = next
       setVersion((v) => v + 1)
     }
-    return makeActions(backend, () => dataRef.current, apply)
-  }, [backend])
+    const apply = (c: Change) => {
+      const id = c.type === 'put' ? c.item.id : c.id
+      const previous = itemsRef.current[id]
+      if (c.type === 'put') {
+        const now = Date.now()
+        const rec = localWrites.current.get(id)
+        const key = stableKey(c.item)
+        const keys = rec && now - rec.at < ECHO_WINDOW_MS ? [...rec.keys.slice(-4), key] : [key]
+        localWrites.current.set(id, { at: now, keys })
+        setItem(id, c.item)
+      } else if (previous) {
+        setItem(id, undefined)
+      }
+      return previous
+    }
+    const restore = (id: string, previous: Item | undefined) => {
+      if (previous) apply({ type: 'put', item: previous })
+      else if (itemsRef.current[id]) setItem(id, undefined)
+    }
+    return makeActions(backend, { get: getData, apply, restore })
+  }, [backend, getData])
 
   useEffect(() => {
     let alive = true
+    let loaded = false
+    let buffered: Change[] = []
+
+    const isFresh = (id: string) => {
+      const rec = localWrites.current.get(id)
+      return !!rec && Date.now() - rec.at < ECHO_WINDOW_MS
+    }
+
+    /** Takes in an item from another device (or a reload). Returns a news event if it is new to us. */
+    const ingest = (next: Record<string, Item>, item: Item, emit: boolean, fromReload: boolean): FamilyEvent | null | undefined => {
+      const current = next[item.id]
+      const key = stableKey(item)
+      const rec = localWrites.current.get(item.id)
+      if (rec && isFresh(item.id)) {
+        if (rec.keys.includes(key)) {
+          // Our own write coming back. Only the newest one matters; older ones are stale.
+          if (key !== rec.keys[rec.keys.length - 1] || (current && stableKey(current) === key)) return undefined
+          next[item.id] = item
+          return null
+        }
+        // A reload can race a write that is still on its way: keep the local version.
+        if (fromReload) return undefined
+      }
+      if (current && stableKey(current) === key) return undefined
+      next[item.id] = item
+      return emit ? { id: uid(), item, previous: current } : null
+    }
+
+    /** Applies remote changes in one go. `undefined` from ingest means nothing changed. */
+    const applyRemote = (changes: Change[], emit: boolean) => {
+      const next = { ...itemsRef.current }
+      let changed = false
+      const news: FamilyEvent[] = []
+      for (const c of changes) {
+        if (c.type === 'put') {
+          const ev = ingest(next, c.item, emit, false)
+          if (ev !== undefined) changed = true
+          if (ev) news.push(ev)
+        } else if (next[c.id]) {
+          delete next[c.id]
+          changed = true
+        }
+      }
+      if (!changed) return
+      itemsRef.current = next
+      setVersion((v) => v + 1)
+      if (news.length) setEvents((ev) => [...ev, ...news].slice(-10))
+    }
+
+    const resync = async () => {
+      const items = await backend.load()
+      if (!alive) return
+      const next = { ...itemsRef.current }
+      const seen = new Set<string>()
+      let changed = false
+      const news: FamilyEvent[] = []
+      for (const item of items) {
+        seen.add(item.id)
+        const ev = ingest(next, item, true, true)
+        if (ev !== undefined) changed = true
+        if (ev) news.push(ev)
+      }
+      for (const id of Object.keys(next)) {
+        if (!seen.has(id) && !isFresh(id)) {
+          delete next[id]
+          changed = true
+        }
+      }
+      for (const [id, rec] of localWrites.current) if (Date.now() - rec.at >= ECHO_WINDOW_MS) localWrites.current.delete(id)
+      if (!changed) return
+      itemsRef.current = next
+      setVersion((v) => v + 1)
+      if (news.length) setEvents((ev) => [...ev, ...news].slice(-10))
+    }
+
+    // Subscribe first and hold changes until the first load lands, so nothing slips between.
+    const unsubscribe = backend.subscribe((c) => {
+      if (!loaded) buffered.push(c)
+      else applyRemote([c], true)
+    })
+
     backend
       .load()
       .then((items) => {
         if (!alive) return
         itemsRef.current = Object.fromEntries(items.map((i) => [i.id, i]))
+        loaded = true
+        applyRemote(buffered, false)
+        buffered = []
         setVersion((v) => v + 1)
         setReady(true)
       })
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => alive && setError(e.message))
 
-    const unsubscribe = backend.subscribe((c) => {
-      const previous = c.type === 'put' ? itemsRef.current[c.item.id] : undefined
-      if (c.type === 'put') {
-        itemsRef.current = { ...itemsRef.current, [c.item.id]: c.item }
-        const wroteAt = localWrites.current.get(c.item.id)
-        const isEcho = wroteAt !== undefined && Date.now() - wroteAt < 15_000
-        if (!isEcho) setEvents((ev) => [...ev.slice(-9), { id: uid(), item: c.item, previous }])
-      } else {
-        const next = { ...itemsRef.current }
-        delete next[c.id]
-        itemsRef.current = next
+    let hiddenAt = 0
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now()
+        return
       }
-      setVersion((v) => v + 1)
-    })
+      if (loaded && Date.now() - hiddenAt > RESYNC_AFTER_MS) resync().catch(() => undefined)
+    }
+    const onOnline = () => {
+      if (loaded) resync().catch(() => undefined)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('online', onOnline)
+
     return () => {
       alive = false
       unsubscribe()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('online', onOnline)
     }
   }, [backend])
 
-  const value: StoreValue = {
-    backend,
-    membership,
-    data,
-    actions,
-    events,
-    dismissEvent: (id) => setEvents((ev) => ev.filter((e) => e.id !== id)),
-    ready,
-    error,
-  }
+  const dismissEvent = useCallback((id: string) => setEvents((ev) => ev.filter((e) => e.id !== id)), [])
+
+  const value = useMemo<StoreValue>(
+    () => ({ backend, membership, data, actions, events, dismissEvent, ready, error }),
+    [backend, membership, data, actions, events, dismissEvent, ready, error],
+  )
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }
 

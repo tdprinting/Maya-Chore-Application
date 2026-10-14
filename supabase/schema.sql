@@ -2,8 +2,6 @@
 -- Paste this whole file into Supabase > SQL Editor > New query, and press Run.
 -- It is safe to run more than once.
 
-create extension if not exists pgcrypto;
-
 -- A family groups the devices that share chores, points and prizes.
 create table if not exists public.families (
   id uuid primary key default gen_random_uuid(),
@@ -65,10 +63,11 @@ create policy "family updates items" on public.items for update using (public.is
 drop policy if exists "family removes items" on public.items;
 create policy "family removes items" on public.items for delete using (public.is_member(family_id));
 
--- Random join code like "KID-7F3A9C".
+-- Random join code like "KID-7F3A9C1D". Uses the built-in gen_random_uuid(), so it works with the
+-- locked-down search_path of the functions below (pgcrypto lives in the "extensions" schema on Supabase).
 create or replace function public.make_code(prefix text)
-returns text language sql volatile as $$
-  select prefix || '-' || upper(substr(encode(gen_random_bytes(4), 'hex'), 1, 6));
+returns text language sql volatile set search_path = pg_catalog as $$
+  select prefix || '-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
 $$;
 
 create or replace function public.create_family(family_name text)
@@ -112,6 +111,11 @@ end $$;
 revoke select on public.families from anon, authenticated;
 grant select (id, name, created_at) on public.families to authenticated;
 
+-- Only signed-in devices may call the family functions; make_code is internal.
+revoke execute on function public.make_code(text) from public, anon, authenticated;
+revoke execute on function public.create_family(text) from public, anon;
+revoke execute on function public.join_family(text) from public, anon;
+revoke execute on function public.family_codes(uuid) from public, anon;
 grant execute on function public.create_family(text) to authenticated;
 grant execute on function public.join_family(text) to authenticated;
 grant execute on function public.family_codes(uuid) to authenticated;
@@ -126,12 +130,19 @@ exception when duplicate_object then null; end $$;
 insert into storage.buckets (id, name, public) values ('photos', 'photos', false)
 on conflict (id) do nothing;
 
+-- Compares the folder name as text: casting it to uuid inside a policy can raise errors for
+-- objects in other buckets, because Postgres does not promise to check bucket_id first.
+create or replace function public.is_member_folder(folder text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.members where family_id::text = folder and user_id = auth.uid());
+$$;
+
 drop policy if exists "family reads photos" on storage.objects;
 create policy "family reads photos" on storage.objects for select
-  using (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));
+  using (bucket_id = 'photos' and public.is_member_folder((storage.foldername(name))[1]));
 drop policy if exists "family uploads photos" on storage.objects;
 create policy "family uploads photos" on storage.objects for insert
-  with check (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));
+  with check (bucket_id = 'photos' and public.is_member_folder((storage.foldername(name))[1]));
 drop policy if exists "family deletes photos" on storage.objects;
 create policy "family deletes photos" on storage.objects for delete
-  using (bucket_id = 'photos' and public.is_member(((storage.foldername(name))[1])::uuid));
+  using (bucket_id = 'photos' and public.is_member_folder((storage.foldername(name))[1]));

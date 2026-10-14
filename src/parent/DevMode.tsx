@@ -3,9 +3,6 @@ import { BigCelebration, FloatingPoints } from '../components'
 import { bigWin, smallWin, sounds } from '../fx'
 import { choresForDay, uid } from '../logic'
 import { useStore } from '../store'
-import type { Item } from '../types'
-
-const ACTIVITY_KINDS: Item['kind'][] = ['submission', 'order', 'wish', 'ledger']
 
 /** A fake "photo" so photo features can be tested without a camera. */
 async function samplePhoto(emoji: string, label: string): Promise<Blob> {
@@ -187,11 +184,10 @@ export function DevMode() {
               return
             }
             setConfirmClear(false)
-            const ids = [...data.submissions, ...data.orders, ...data.wishes, ...data.ledger]
-              .filter((i) => ACTIVITY_KINDS.includes(i.kind))
-              .map((i) => i.id)
-            for (const id of ids) await actions.remove(id)
-            done(`✓ Cleared ${ids.length} entries. Stars are back to 0.`)
+            const ids = [...data.submissions, ...data.orders, ...data.wishes, ...data.ledger].map((i) => i.id)
+            await run(`Cleared ${ids.length} entries. Stars are back to 0.`, async () => {
+              for (const id of ids) await actions.remove(id)
+            })()
           }}
         >
           {confirmClear ? '⚠️ Tap again to clear' : '🧹 Clear all activity'}

@@ -12,10 +12,13 @@ import {
   suggestPhotoBonus,
   suggestPoints,
   suggestPrizePoints,
+  stableKey,
   weekStartKey,
 } from './logic'
 import { seedItems } from './seed'
-import type { Chore, LedgerEntry, Submission } from './types'
+import type { Backend, Change } from './backend'
+import { derive, makeActions } from './store'
+import type { Chore, Item, LedgerEntry, Prize, Submission } from './types'
 
 const sub = (over: Partial<Submission>): Submission => ({
   id: Math.random().toString(),
@@ -118,5 +121,69 @@ describe('seed data', () => {
   })
   it('personalizes the daily words', () => {
     for (let d = 0; d < 40; d++) expect(wordsForToday('Maya', new Date(2026, 0, d + 1))).not.toContain('{name}')
+  })
+})
+
+describe('stableKey', () => {
+  it('ignores key order and undefined fields, like a jsonb round trip', () => {
+    expect(stableKey({ a: 1, b: { c: [1, 'x'], d: undefined } })).toBe(stableKey({ b: { c: [1, 'x'] }, a: 1 }))
+    expect(stableKey({ a: 1 })).not.toBe(stableKey({ a: 2 }))
+  })
+})
+
+describe('actions', () => {
+  // A local store like StoreProvider's, with a backend that only records writes.
+  const setup = (initial: Item[]) => {
+    let items: Record<string, Item> = Object.fromEntries(initial.map((i) => [i.id, i]))
+    const writes: Item[] = []
+    const backend = {
+      put: async (item: Item) => void writes.push(item),
+      remove: async () => undefined,
+      uploadPhoto: async () => 'photo',
+    } as unknown as Backend
+    const apply = (c: Change) => {
+      const id = c.type === 'put' ? c.item.id : c.id
+      const previous = items[id]
+      items = { ...items }
+      if (c.type === 'put') items[id] = c.item
+      else delete items[id]
+      return previous
+    }
+    const actions = makeActions(backend, {
+      get: () => derive(items),
+      apply,
+      restore: (id, prev) => void (prev ? apply({ type: 'put', item: prev }) : apply({ type: 'remove', id })),
+    })
+    return { actions, writes, data: () => derive(items) }
+  }
+  const prize: Prize = { id: 'p1', kind: 'prize', title: 'Toy', emoji: '🧸', points: 30, active: true, createdAt: '2026-10-14T10:00:00Z' }
+
+  it('cannot spend the same stars twice on a double tap', async () => {
+    const { actions, data } = setup([prize, entry(40)])
+    const first = actions.buyPrize(prize)
+    await expect(actions.buyPrize(prize)).rejects.toThrow('Not enough stars')
+    await first
+    expect(data().balance).toBe(10)
+    expect(data().orders).toHaveLength(1)
+  })
+
+  it('pays out an approval and a refund only once', async () => {
+    const s = sub({ id: 's1' })
+    const { actions, data } = setup([s, prize, entry(100)])
+    await Promise.all([actions.approveSubmission(s, 10), actions.approveSubmission(s, 10)])
+    expect(data().balance).toBe(110)
+    const order = await actions.buyPrize(prize)
+    expect(data().balance).toBe(80)
+    await Promise.all([actions.updateOrder(order, 'declined'), actions.updateOrder(order, 'declined')])
+    expect(data().balance).toBe(110)
+    expect(data().orders[0].status).toBe('declined')
+  })
+
+  it('keeps the parent note when a wish is added to the shop', async () => {
+    const wish = { id: 'w1', kind: 'wish', title: 'Kite', status: 'pending', createdAt: '2026-10-14T10:00:00Z' } as const
+    const { actions, data } = setup([wish])
+    await actions.approveWish(wish, 50, '🪁', 'Kite', 'Great find!')
+    expect(data().wishes[0].parentNote).toBe('Great find!')
+    expect(data().prizes).toHaveLength(1)
   })
 })

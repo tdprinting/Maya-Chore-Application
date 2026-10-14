@@ -189,3 +189,17 @@ export function canAfford(bal: number, prize: Prize): boolean {
 export function ofKind<K extends Item['kind']>(items: Item[], kind: K): Extract<Item, { kind: K }>[] {
   return items.filter((i): i is Extract<Item, { kind: K }> => i.kind === kind)
 }
+
+/**
+ * A key that is the same for two items with the same content, whatever order their keys are in
+ * (Postgres jsonb reorders keys) and whether optional fields are missing or undefined.
+ */
+export function stableKey(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map((v) => (v === undefined ? 'null' : stableKey(v))).join(',')}]`
+  const obj = value as Record<string, unknown>
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort()
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableKey(obj[k])}`).join(',')}}`
+}

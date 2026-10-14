@@ -21,18 +21,20 @@ export function Stars({ n, big }: { n: number; big?: boolean }) {
 
 export function AnimatedNumber({ value }: { value: number }) {
   const [shown, setShown] = useState(value)
-  const from = useRef(value)
+  // Where the number currently is, so a change mid-animation continues from there instead of jumping back.
+  const current = useRef(value)
   useEffect(() => {
     const start = performance.now()
-    const a = from.current
+    const a = current.current
+    if (a === value) return
     const dur = 900
     let raf = 0
     const tick = (t: number) => {
       const p = Math.min(1, (t - start) / dur)
       const eased = 1 - Math.pow(1 - p, 3)
-      setShown(Math.round(a + (value - a) * eased))
+      current.current = Math.round(a + (value - a) * eased)
+      setShown(current.current)
       if (p < 1) raf = requestAnimationFrame(tick)
-      else from.current = value
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
@@ -47,6 +49,7 @@ export function Photo({ src, alt, className }: { src?: string; alt: string; clas
   const [open, setOpen] = useState(false)
   useEffect(() => {
     let alive = true
+    setUrl(undefined)
     if (src) backend.photoUrl(src).then((u) => alive && setUrl(u)).catch(() => undefined)
     return () => {
       alive = false
@@ -201,11 +204,13 @@ export interface Toast {
 }
 
 export function Toasts({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: string) => void }) {
+  // Time only the oldest toast, so new arrivals don't keep pushing its dismissal back.
+  const first = toasts[0]?.id
   useEffect(() => {
-    if (!toasts.length) return
-    const t = setTimeout(() => onDismiss(toasts[0].id), 5000)
+    if (!first) return
+    const t = setTimeout(() => onDismiss(first), 5000)
     return () => clearTimeout(t)
-  }, [toasts, onDismiss])
+  }, [first, onDismiss])
   return (
     <div className="toasts">
       <AnimatePresence>
@@ -269,5 +274,50 @@ export function Progress({ value, max, label }: { value: number; max: number; la
     <div className="progress" aria-label={label}>
       <motion.div className="progress-fill" initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 1, ease: 'easeOut' }} />
     </div>
+  )
+}
+
+/**
+ * A button that asks "are you sure?" in place: the first tap arms it, a second tap within a few
+ * seconds runs the action. Works everywhere, including hosts where window.confirm() is blocked.
+ */
+export function ConfirmButton({
+  className = 'btn',
+  confirmLabel = 'Tap again to confirm',
+  onConfirm,
+  disabled,
+  children,
+}: {
+  className?: string
+  confirmLabel?: ReactNode
+  onConfirm: () => void | Promise<void>
+  disabled?: boolean
+  children: ReactNode
+}) {
+  const [armed, setArmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(t)
+  }, [armed])
+  return (
+    <button
+      type="button"
+      className={armed ? `${className} danger` : className}
+      disabled={disabled || busy}
+      onClick={async () => {
+        if (!armed) return setArmed(true)
+        setArmed(false)
+        setBusy(true)
+        try {
+          await onConfirm()
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      {armed ? confirmLabel : children}
+    </button>
   )
 }

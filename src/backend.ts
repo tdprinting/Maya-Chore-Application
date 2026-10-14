@@ -211,6 +211,7 @@ export class SupabaseBackend implements Backend {
 
   async leaveFamily() {
     this.member = null
+    this.urlCache.clear()
     await this.sb.auth.signOut()
   }
 
@@ -231,6 +232,8 @@ export class SupabaseBackend implements Backend {
         .from('items')
         .select('data')
         .eq('family_id', m.familyId)
+        // Pages are only stable with a fixed order; without one rows can be skipped or repeated.
+        .order('id')
         .range(from, from + page - 1)
       if (error) throw error
       all.push(...(data as Array<{ data: Item }>).map((r) => r.data))
@@ -241,20 +244,38 @@ export class SupabaseBackend implements Backend {
 
   subscribe(onChange: (c: Change) => void) {
     const m = this.requireMember()
+    const familyId = m.familyId
+    // Supabase can't filter DELETE events (the old row only carries its primary key), so they are
+    // heard unfiltered. Item ids are random UUIDs, so a delete from another family matches nothing here.
     const channel = this.sb
-      .channel(`family-${m.familyId}`)
+      .channel(`family-${familyId}-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'items', filter: `family_id=eq.${m.familyId}` },
+        { event: 'INSERT', schema: 'public', table: 'items', filter: `family_id=eq.${familyId}` },
         (payload) => {
-          if (payload.eventType === 'DELETE') {
-            const old = payload.old as Partial<ItemRow>
-            if (old.id) onChange({ type: 'remove', id: old.id })
-          } else {
-            onChange({ type: 'put', item: (payload.new as ItemRow).data })
-          }
+          const row = payload.new as Partial<ItemRow>
+          if (row.data) onChange({ type: 'put', item: row.data })
         },
       )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'items', filter: `family_id=eq.${familyId}` },
+        (payload) => {
+          const row = payload.new as Partial<ItemRow>
+          if (row.data) onChange({ type: 'put', item: row.data })
+        },
+      )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'items' }, (payload) => {
+        const old = payload.old as Partial<ItemRow>
+        if (!old.id) return
+        if (old.family_id && old.family_id !== familyId) return
+        // The settings row is stored as `settings:<familyId>`, but the app knows it as `settings`.
+        if (old.id.startsWith('settings:')) {
+          if (old.id === this.rowId('settings')) onChange({ type: 'remove', id: 'settings' })
+          return
+        }
+        onChange({ type: 'remove', id: old.id })
+      })
       .subscribe()
     return () => {
       void this.sb.removeChannel(channel)
@@ -273,8 +294,10 @@ export class SupabaseBackend implements Backend {
 
   async uploadPhoto(blob: Blob) {
     const m = this.requireMember()
-    const path = `${m.familyId}/${crypto.randomUUID()}.jpg`
-    const { error } = await this.sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg' })
+    const type = blob.type || 'image/jpeg'
+    const ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg'
+    const path = `${m.familyId}/${crypto.randomUUID()}.${ext}`
+    const { error } = await this.sb.storage.from('photos').upload(path, blob, { contentType: type })
     if (error) throw error
     return `sb:${path}`
   }

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chat, useUnreadCount } from '../Chat'
-import { Empty, Modal, Photo, Stars, TabBar, Toasts, type Tab, type Toast } from '../components'
+import { ConfirmButton, Empty, Modal, Photo, Stars, TabBar, Toasts, type Tab, type Toast } from '../components'
 import { sounds } from '../fx'
 import { EFFORT_LABELS, STARS_PER_DOLLAR, dayKey, nowIso, sameWeek, streak, weekStartKey, pointsFor, suggestPhotoBonus, suggestPoints, suggestPrizePoints, uid } from '../logic'
 import { CATEGORY_LABELS, EMOJI_CHOICES } from '../seed'
@@ -186,9 +186,12 @@ function Inbox() {
               disabled={approvingAll}
               onClick={async () => {
                 setApprovingAll(true)
-                for (const x of subs) await actions.approveSubmission(x, pointsFor(x))
-                sounds.chime()
-                setApprovingAll(false)
+                try {
+                  for (const x of subs) await actions.approveSubmission(x, pointsFor(x))
+                  sounds.chime()
+                } finally {
+                  setApprovingAll(false)
+                }
               }}
             >
               ✅ Approve all
@@ -233,7 +236,18 @@ function SubmissionCard({ sub }: { sub: Submission }) {
   const [points, setPoints] = useState(pointsFor(sub))
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
   const label = sub.type === 'homework' ? 'School star' : sub.type === 'bonus' ? 'Bonus quest' : 'Chore'
+  const review = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    setErr('')
+    try {
+      await fn()
+    } catch (e) {
+      setErr((e as Error).message)
+      setBusy(false)
+    }
+  }
   return (
     <motion.section className="card review-card" layout initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 200 }}>
       <div className="review-head">
@@ -262,11 +276,12 @@ function SubmissionCard({ sub }: { sub: Submission }) {
           type="button"
           className="btn go grow"
           disabled={busy}
-          onClick={async () => {
-            setBusy(true)
-            await actions.approveSubmission(sub, points, note)
-            sounds.chime()
-          }}
+          onClick={() =>
+            review(async () => {
+              await actions.approveSubmission(sub, points, note)
+              sounds.chime()
+            })
+          }
         >
           ✅ Approve +{points}
         </button>
@@ -274,14 +289,12 @@ function SubmissionCard({ sub }: { sub: Submission }) {
           type="button"
           className="btn ghost"
           disabled={busy}
-          onClick={async () => {
-            setBusy(true)
-            await actions.rejectSubmission(sub, note || 'Almost! Let’s finish it together.')
-          }}
+          onClick={() => review(() => actions.rejectSubmission(sub, note || 'Almost! Let’s finish it together.'))}
         >
           🔁 Send back
         </button>
       </div>
+      {err && <p className="error">{err}</p>}
     </motion.section>
   )
 }
@@ -289,7 +302,16 @@ function SubmissionCard({ sub }: { sub: Submission }) {
 function OrderRequestCard({ order }: { order: Order }) {
   const { actions } = useStore()
   const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
   const link = safeUrl(order.link)
+  const decide = async (status: Order['status']) => {
+    setBusy(true)
+    try {
+      await actions.updateOrder(order, status, note)
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <section className="card review-card">
       <div className="review-head">
@@ -308,10 +330,10 @@ function OrderRequestCard({ order }: { order: Order }) {
       </div>
       <input className="input" placeholder="Note for her (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
       <div className="row">
-        <button type="button" className="btn go grow" onClick={() => actions.updateOrder(order, 'approved', note)}>
+        <button type="button" className="btn go grow" disabled={busy} onClick={() => decide('approved')}>
           💰 Add to payday list
         </button>
-        <button type="button" className="btn ghost" onClick={() => actions.updateOrder(order, 'declined', note)}>
+        <button type="button" className="btn ghost" disabled={busy} onClick={() => decide('declined')}>
           ↩️ Decline & refund
         </button>
       </div>
@@ -325,7 +347,16 @@ function WishCard({ wish }: { wish: Wish }) {
   const [points, setPoints] = useState(suggestPrizePoints(wish.price ?? 5))
   const [emoji, setEmoji] = useState('🎁')
   const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
   const link = safeUrl(wish.link)
+  const decide = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    try {
+      await fn()
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <section className="card review-card">
       <div className="review-head">
@@ -359,10 +390,10 @@ function WishCard({ wish }: { wish: Wish }) {
       <EmojiRow value={emoji} onChange={setEmoji} />
       <input className="input" placeholder="Note for her (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
       <div className="row">
-        <button type="button" className="btn go grow" onClick={() => actions.approveWish(wish, points, emoji, title.trim() || wish.title)}>
+        <button type="button" className="btn go grow" disabled={busy} onClick={() => decide(() => actions.approveWish(wish, points, emoji, title.trim() || wish.title, note))}>
           🛍️ Add to her shop
         </button>
-        <button type="button" className="btn ghost" onClick={() => actions.declineWish(wish, note)}>
+        <button type="button" className="btn ghost" disabled={busy} onClick={() => decide(() => actions.declineWish(wish, note))}>
           Not this time
         </button>
       </div>
@@ -619,17 +650,16 @@ function ChoreEditor({ chore, onClose }: { chore: Chore | null; onClose: () => v
           Save
         </button>
         {exists && (
-          <button
-            type="button"
+          <ConfirmButton
             className="btn danger"
-            onClick={async () => {
-              if (!confirm(`Delete “${c.title}”?`)) return
+            confirmLabel="Tap again to delete"
+            onConfirm={async () => {
               await actions.remove(c.id)
               onClose()
             }}
           >
             Delete
-          </button>
+          </ConfirmButton>
         )}
       </div>
     </Modal>
@@ -796,17 +826,16 @@ function PrizeEditor({ prize, onClose }: { prize: Prize | null; onClose: () => v
           Save
         </button>
         {exists && (
-          <button
-            type="button"
+          <ConfirmButton
             className="btn danger"
-            onClick={async () => {
-              if (!confirm(`Delete “${p.title}”?`)) return
+            confirmLabel="Tap again to delete"
+            onConfirm={async () => {
               await actions.remove(p.id)
               onClose()
             }}
           >
             Delete
-          </button>
+          </ConfirmButton>
         )}
       </div>
     </Modal>
@@ -832,7 +861,9 @@ function Family() {
   }, [backend])
   const weekApproved = useMemo(() => {
     const weekAgo = Date.now() - 7 * 86_400_000
-    return data.ledger.filter((e) => e.amount > 0 && new Date(e.createdAt).getTime() > weekAgo).reduce((a, e) => a + e.amount, 0)
+    return data.ledger
+      .filter((e) => e.amount > 0 && !e.refId?.startsWith('refund:') && new Date(e.createdAt).getTime() > weekAgo)
+      .reduce((a, e) => a + e.amount, 0)
   }, [data.ledger])
 
   return (
@@ -926,11 +957,11 @@ function Family() {
         <h3>⚙️ Settings</h3>
         <label className="field">
           Kid's name
-          <input className="input" value={s.kidName} onChange={(e) => actions.updateSettings({ kidName: e.target.value })} />
+          <SettingText value={s.kidName} onSave={(kidName) => actions.updateSettings({ kidName })} />
         </label>
         <label className="field">
           Name for the points
-          <input className="input" value={s.currency} onChange={(e) => actions.updateSettings({ currency: e.target.value })} />
+          <SettingText value={s.currency} onSave={(currency) => actions.updateSettings({ currency })} />
         </label>
         <div className="field">
           Parent PIN (opens the parent area from {s.kidName}'s iPad) {s.parentPinHash ? '· set ✓' : '· not set'}
@@ -991,17 +1022,46 @@ function Family() {
         </button>
       )}
 
-      <button
-        type="button"
+      <ConfirmButton
         className="btn ghost"
-        onClick={async () => {
-          if (!confirm('Disconnect this device from the family? You can rejoin with a code.')) return
+        confirmLabel="Tap again to disconnect (rejoin later with a code)"
+        onConfirm={async () => {
           await backend.leaveFamily()
           location.reload()
         }}
       >
         Disconnect this device
-      </button>
+      </ConfirmButton>
     </div>
+  )
+}
+
+/**
+ * A settings text box that saves when you leave it (or press Enter) instead of on every keystroke,
+ * which would send a write per letter and let realtime echoes overwrite what you are typing.
+ */
+function SettingText({ value, onSave }: { value: string; onSave: (v: string) => Promise<void> }) {
+  const [draft, setDraft] = useState(value)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [value, editing])
+  const commit = () => {
+    setEditing(false)
+    const v = draft.trim()
+    if (!v) return setDraft(value)
+    if (v !== value) onSave(v).catch(() => setDraft(value))
+  }
+  return (
+    <input
+      className="input"
+      value={draft}
+      onFocus={() => setEditing(true)}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+      }}
+    />
   )
 }

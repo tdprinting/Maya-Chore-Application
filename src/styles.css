@@ -2833,3 +2833,110 @@ button.stat-card:active {
   color: #2f4a8a;
   border-bottom: 3px solid #ffd84d;
 }
+
+/* ---------- layout polish (QA pass) ---------- */
+
+/* An empty list card (e.g. a prize shop with no prizes yet) shouldn't show as a blank box. */
+.card:empty {
+  display: none;
+}
+
+/* Home stats: a tidy 2x2 grid (4 across on wide screens) instead of 3 + 1 orphan. */
+.grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1000px) {
+  .grid-2 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Status chips inside cards wrap instead of cutting off ("Waiting for a…"). */
+.chore-card .chip,
+.list-row > .chip {
+  white-space: normal;
+  text-overflow: clip;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.list-row > .chip {
+  flex-shrink: 0;
+  max-width: 45%;
+}
+
+/* Keep the last card clear of Lilo (fixed above the tab bar) while she overlaps the content column. */
+@media (max-width: 1199px) {
+  .app.kid .kid-main {
+    padding-bottom: calc(210px + var(--safe-bottom));
+  }
+}
+
+@media (max-width: 600px) {
+  .app.kid .kid-main {
+    padding-bottom: calc(176px + var(--safe-bottom));
+  }
+
+  /* Header: one tidy row on phones */
+  .kid-header {
+    gap: 8px;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .kid-title {
+    font-size: 1.05rem;
+    line-height: 1.15;
+  }
+  .kid-header .row {
+    flex-wrap: nowrap;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .kid-header .stars {
+    font-size: 0.95rem;
+    padding: 4px 10px;
+  }
+  .kid-header .btn.tiny {
+    padding: 6px 9px;
+    font-size: 0.78rem;
+  }
+
+  /* Tab bar: 8 kid tabs / 6 parent tabs fit with full labels */
+  .tabbar {
+    gap: 2px;
+    padding: 5px 4px;
+    width: calc(100% - 16px);
+    bottom: calc(8px + var(--safe-bottom));
+  }
+  .tab {
+    padding: 7px 0;
+  }
+  .kid .tab-label {
+    font-size: 0.64rem;
+    letter-spacing: -0.01em;
+  }
+  .parent .tab-label {
+    font-size: 0.72rem;
+  }
+
+  /* Two prizes per row instead of one giant card */
+  .prize-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 16px 12px;
+  }
+
+  /* Stat tiles are 2-up on phones, so trim them a little */
+  .stat-card {
+    padding: 14px 10px;
+    font-size: 0.9rem;
+  }
+  .stat-big {
+    font-size: 2rem;
+  }
+}
+
+/* Springy pop-in animations overshoot briefly; never let that cause sideways scroll. */
+.app {
+  overflow-x: clip;
+}

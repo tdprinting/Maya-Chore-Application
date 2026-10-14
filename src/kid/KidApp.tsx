@@ -91,9 +91,22 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
       }
       dismissEvent(ev.id)
     }
-  }, [events, dismissEvent, pushToast])
+  }, [events, dismissEvent, pushToast, react])
 
-  const today = dayKey()
+  // The iPad stays open overnight: re-render when the date changes so "today" moves on.
+  const [today, setToday] = useState(() => dayKey())
+  useEffect(() => {
+    const now = new Date()
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5)
+    const t = setTimeout(() => setToday(dayKey()), midnight.getTime() - now.getTime())
+    const onVisible = () => document.visibilityState === 'visible' && setToday(dayKey())
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [today])
+
   const todays = choresForDay(data.chores)
   const todoCount = todays.filter((c) => !submissionForDay(data.submissions, c.id, today)).length
 
@@ -475,6 +488,7 @@ function KidSchool({ onEarned }: { onEarned: (t: string) => void }) {
   const [title, setTitle] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
   const mine = data.submissions.filter((s) => s.type === 'homework')
   return (
     <div className="stack">
@@ -493,6 +507,7 @@ function KidSchool({ onEarned }: { onEarned: (t: string) => void }) {
             if (!photo) return
             const origin = originOf(e.currentTarget)
             setBusy(true)
+            setErr('')
             try {
               await actions.submitHomework(title, photo, note)
               smallWin(origin)
@@ -500,6 +515,8 @@ function KidSchool({ onEarned }: { onEarned: (t: string) => void }) {
               setPhoto(undefined)
               setTitle('')
               setNote('')
+            } catch (x) {
+              setErr((x as Error).message)
             } finally {
               setBusy(false)
             }
@@ -507,6 +524,7 @@ function KidSchool({ onEarned }: { onEarned: (t: string) => void }) {
         >
           {busy ? 'Sending…' : 'Send to Mom & Dad 🚀'}
         </motion.button>
+        {err && <p className="error">{err}</p>}
       </section>
       {mine.length > 0 && <h3>My school stars</h3>}
       <div className="list">
@@ -532,6 +550,8 @@ function KidShop() {
   const [party, setParty] = useState<Order | null>(null)
   const [wishOpen, setWishOpen] = useState(false)
   const [view, setView] = useState<'shop' | 'mine'>('shop')
+  const [buying, setBuying] = useState(false)
+  const [buyErr, setBuyErr] = useState('')
   const prizes = data.prizes.filter((p) => p.active)
   const goalId = data.settings.goalPrizeId
 
@@ -584,7 +604,13 @@ function KidShop() {
         <MyPrizes />
       )}
 
-      <Modal open={!!open} onClose={() => setOpen(null)}>
+      <Modal
+        open={!!open}
+        onClose={() => {
+          setOpen(null)
+          setBuyErr('')
+        }}
+      >
         {open && (
           <>
             {open.photo ? <Photo src={open.photo} alt={open.title} className="modal-photo" /> : <div className="modal-emoji">{open.emoji}</div>}
@@ -600,14 +626,24 @@ function KidShop() {
                 className="btn big go"
                 animate={{ scale: [1, 1.05, 1] }}
                 transition={{ repeat: Infinity, duration: 1.2 }}
+                disabled={buying}
                 onClick={async () => {
-                  const order = await actions.buyPrize(open)
-                  setOpen(null)
-                  bigWin()
-                  setParty(order)
+                  if (buying) return
+                  setBuying(true)
+                  setBuyErr('')
+                  try {
+                    const order = await actions.buyPrize(open)
+                    setOpen(null)
+                    bigWin()
+                    setParty(order)
+                  } catch (e) {
+                    setBuyErr((e as Error).message)
+                  } finally {
+                    setBuying(false)
+                  }
                 }}
               >
-                Get it! 🎉
+                {buying ? 'Sending…' : 'Get it! 🎉'}
               </motion.button>
             ) : (
               <>
@@ -628,6 +664,7 @@ function KidShop() {
                 )}
               </>
             )}
+            {buyErr && <p className="error">{buyErr}</p>}
           </>
         )}
       </Modal>
@@ -702,6 +739,7 @@ function WishModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [note, setNote] = useState('')
   const [photo, setPhoto] = useState<Blob>()
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
   const reset = () => {
     setTitle('')
     setLink('')
@@ -727,11 +765,14 @@ function WishModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         onClick={async (e) => {
           const origin = originOf(e.currentTarget)
           setBusy(true)
+          setErr('')
           try {
             await actions.submitWish({ title: title.trim(), link: safeUrl(link), price: parseFloat(price.replace(/[^0-9.]/g, '')) || undefined, note, photo })
             smallWin(origin)
             reset()
             onClose()
+          } catch (x) {
+            setErr((x as Error).message)
           } finally {
             setBusy(false)
           }
@@ -739,6 +780,7 @@ function WishModal({ open, onClose }: { open: boolean; onClose: () => void }) {
       >
         {busy ? 'Sending…' : 'Send my wish 💫'}
       </motion.button>
+      {err && <p className="error">{err}</p>}
     </Modal>
   )
 }

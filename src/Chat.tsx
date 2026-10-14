@@ -76,7 +76,12 @@ export function Chat({ side }: { side: ChatMessage['from'] }) {
     sounds.pop()
     setText('')
     setShowStickers(false)
-    await actions.sendMessage(side, author, body.trim(), sticker)
+    try {
+      await actions.sendMessage(side, author, body.trim(), sticker)
+    } catch {
+      // Didn't go through: give the words back so nothing typed is lost.
+      if (!sticker) setText((t) => t || body)
+    }
   }
 
   return (
