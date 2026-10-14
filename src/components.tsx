@@ -4,74 +4,16 @@ import { createPortal } from 'react-dom'
 import { useStore } from './store'
 import { compressImage } from './util'
 
-/** Lilo, the family cat, as Maya's cheerleader: a pink-bowed kitty with a hibiscus. */
-export function Mascot({ size = 120, mood = 'happy' }: { size?: number; mood?: 'happy' | 'wow' | 'wink' }) {
-  return (
-    <motion.svg
-      width={size}
-      height={size}
-      viewBox="0 0 200 200"
-      animate={{ y: [0, -6, 0], rotate: [0, -2, 2, 0] }}
-      transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-      aria-label="Lilo the cat"
-      role="img"
-    >
-      <ellipse cx="100" cy="185" rx="55" ry="8" fill="rgba(0,0,0,0.08)" />
-      <path d="M40 70 L52 18 L88 52 Z" fill="#6b6f8c" />
-      <path d="M160 70 L148 18 L112 52 Z" fill="#6b6f8c" />
-      <path d="M50 60 L56 32 L76 52 Z" fill="#ffb3d9" />
-      <path d="M150 60 L144 32 L124 52 Z" fill="#ffb3d9" />
-      <ellipse cx="100" cy="105" rx="72" ry="66" fill="#7d82a3" />
-      <ellipse cx="100" cy="128" rx="40" ry="30" fill="#e9ebf5" />
-      {mood === 'wink' ? (
-        <>
-          <path d="M60 98 Q72 88 84 98" stroke="#2a2d43" strokeWidth="6" fill="none" strokeLinecap="round" />
-          <ellipse cx="132" cy="98" rx="11" ry="14" fill="#2a2d43" />
-          <circle cx="136" cy="93" r="4" fill="#fff" />
-        </>
-      ) : (
-        <>
-          <ellipse cx="72" cy="98" rx={mood === 'wow' ? 13 : 11} ry={mood === 'wow' ? 16 : 14} fill="#2a2d43" />
-          <ellipse cx="128" cy="98" rx={mood === 'wow' ? 13 : 11} ry={mood === 'wow' ? 16 : 14} fill="#2a2d43" />
-          <circle cx="76" cy="93" r="4" fill="#fff" />
-          <circle cx="132" cy="93" r="4" fill="#fff" />
-        </>
-      )}
-      <ellipse cx="100" cy="118" rx="7" ry="5" fill="#ff6fae" />
-      {mood === 'wow' ? (
-        <ellipse cx="100" cy="136" rx="9" ry="11" fill="#c2185b" />
-      ) : (
-        <path d="M88 128 Q100 140 112 128" stroke="#2a2d43" strokeWidth="4" fill="none" strokeLinecap="round" />
-      )}
-      <g stroke="#2a2d43" strokeWidth="3" strokeLinecap="round">
-        <line x1="30" y1="115" x2="62" y2="120" />
-        <line x1="30" y1="130" x2="62" y2="128" />
-        <line x1="170" y1="115" x2="138" y2="120" />
-        <line x1="170" y1="130" x2="138" y2="128" />
-      </g>
-      <circle cx="56" cy="122" r="8" fill="#ffb3d9" opacity="0.7" />
-      <circle cx="144" cy="122" r="8" fill="#ffb3d9" opacity="0.7" />
-      {/* bow */}
-      <g transform="translate(140 52) rotate(18)">
-        <path d="M0 0 L-26 -16 L-26 16 Z" fill="#ff3d8b" />
-        <path d="M0 0 L26 -16 L26 16 Z" fill="#ff3d8b" />
-        <circle cx="0" cy="0" r="8" fill="#ff8fc0" />
-      </g>
-      {/* hibiscus */}
-      <g transform="translate(56 50)">
-        {[0, 72, 144, 216, 288].map((r) => (
-          <ellipse key={r} cx="0" cy="-10" rx="7" ry="11" fill="#4fc3f7" transform={`rotate(${r})`} />
-        ))}
-        <circle r="4" fill="#ffe066" />
-      </g>
-    </motion.svg>
-  )
-}
+export { Mascot } from './art/Mascot'
+import { Mascot } from './art/Mascot'
+import { Icon, type IconName } from './art/Icons'
 
 export function Stars({ n, big }: { n: number; big?: boolean }) {
   return (
     <span className={big ? 'stars stars-big' : 'stars'}>
-      <span className="star-icon">⭐</span>
+      <span className="star-icon">
+        <Icon name="star" size={big ? 34 : 24} active />
+      </span>
       <AnimatedNumber value={n} />
     </span>
   )
@@ -292,7 +234,7 @@ export function Toasts({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id:
 export interface Tab<T extends string> {
   id: T
   label: string
-  icon: string
+  icon: IconName
   badge?: number
 }
 
@@ -301,8 +243,8 @@ export function TabBar<T extends string>({ tabs, current, onChange }: { tabs: Ta
     <nav className="tabbar">
       {tabs.map((t) => (
         <button key={t.id} type="button" className={t.id === current ? 'tab active' : 'tab'} onClick={() => onChange(t.id)}>
-          <motion.span className="tab-icon" animate={t.id === current ? { scale: [1, 1.3, 1.1], rotate: [0, -10, 0] } : { scale: 1 }}>
-            {t.icon}
+          <motion.span className="tab-icon" animate={t.id === current ? { scale: [1, 1.3, 1.1], y: [0, -6, 0] } : { scale: 1, y: 0 }}>
+            <Icon name={t.icon} size={34} active={t.id === current} />
           </motion.span>
           <span className="tab-label">{t.label}</span>
           {!!t.badge && <span className="badge">{t.badge}</span>}

@@ -1,19 +1,24 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Chat, useUnreadCount } from '../Chat'
 import { Empty, Modal, Photo, Stars, TabBar, Toasts, type Tab, type Toast } from '../components'
 import { sounds } from '../fx'
-import { EFFORT_LABELS, STARS_PER_DOLLAR, nowIso, pointsFor, suggestPhotoBonus, suggestPoints, suggestPrizePoints, uid } from '../logic'
+import { EFFORT_LABELS, STARS_PER_DOLLAR, dayKey, nowIso, sameWeek, streak, weekStartKey, pointsFor, suggestPhotoBonus, suggestPoints, suggestPrizePoints, uid } from '../logic'
 import { CATEGORY_LABELS, EMOJI_CHOICES } from '../seed'
 import { useStore } from '../store'
 import { DevMode } from './DevMode'
+import { quoteFor, tipFor } from './tips'
 import type { Chore, ChoreCategory, Effort, Order, Prize, Submission, Wish } from '../types'
 import { DAY_FULL, DAY_NAMES, hashPin, money, safeUrl, setBadge, timeAgo } from '../util'
 
-type ParentTab = 'inbox' | 'schedule' | 'catalog' | 'prizes' | 'family'
+type ParentTab = 'inbox' | 'chat' | 'schedule' | 'catalog' | 'prizes' | 'family'
 
 export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void; canLeaveToKid: boolean }) {
   const { data, events, dismissEvent } = useStore()
   const [tab, setTab] = useState<ParentTab>('inbox')
+  const tabRef = useRef(tab)
+  tabRef.current = tab
+  const unread = useUnreadCount('parent')
   const [toasts, setToasts] = useState<Toast[]>([])
   const dismissToast = useCallback((id: string) => setToasts((ts) => ts.filter((t) => t.id !== id)), [])
 
@@ -23,7 +28,7 @@ export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void;
   const inboxCount = pendingSubs.length + pendingOrders.length + pendingWishes.length
   const kid = data.settings.kidName
 
-  useEffect(() => setBadge(inboxCount), [inboxCount])
+  useEffect(() => setBadge(inboxCount + unread), [inboxCount, unread])
   useEffect(() => {
     document.body.className = 'parent'
   }, [])
@@ -40,6 +45,9 @@ export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void;
         }
       } else if (it.kind === 'order' && !ev.previous) {
         toast = { emoji: '🎁', title: `${kid} bought ${it.title}!`, body: `⭐ ${it.points}. Add it to the payday list.` }
+      } else if (it.kind === 'message' && !ev.previous && it.from === 'kid') {
+        if (tabRef.current === 'chat') sounds.pop()
+        else toast = { emoji: '💬', title: `${kid} says:`, body: it.sticker ?? it.text }
       } else if (it.kind === 'wish' && !ev.previous) {
         toast = { emoji: '💭', title: `${kid} wished for ${it.title}`, body: 'Review it in the Inbox.' }
       }
@@ -60,11 +68,12 @@ export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void;
   }, [events, dismissEvent, kid])
 
   const tabs: Tab<ParentTab>[] = [
-    { id: 'inbox', label: 'Inbox', icon: '📥', badge: inboxCount },
-    { id: 'schedule', label: 'Schedule', icon: '📅' },
-    { id: 'catalog', label: 'Chores', icon: '📋' },
-    { id: 'prizes', label: 'Prizes', icon: '🎁', badge: data.orders.filter((o) => o.status === 'approved').length },
-    { id: 'family', label: 'Family', icon: '💖' },
+    { id: 'inbox', label: 'Inbox', icon: 'inbox', badge: inboxCount },
+    { id: 'chat', label: 'Chat', icon: 'chat', badge: unread },
+    { id: 'schedule', label: 'Schedule', icon: 'schedule' },
+    { id: 'catalog', label: 'Chores', icon: 'catalog' },
+    { id: 'prizes', label: 'Prizes', icon: 'prizes', badge: data.orders.filter((o) => o.status === 'approved').length },
+    { id: 'family', label: 'Family', icon: 'family' },
   ]
 
   return (
@@ -87,6 +96,7 @@ export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void;
             {tab === 'schedule' && <Schedule />}
             {tab === 'catalog' && <Catalog />}
             {tab === 'prizes' && <Prizes />}
+            {tab === 'chat' && <Chat side="parent" />}
             {tab === 'family' && <Family />}
           </motion.div>
         </AnimatePresence>
@@ -99,8 +109,65 @@ export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void;
 
 // ---------------------------------------------------------------------------
 
-function Inbox() {
+function ParentToday() {
   const { data } = useStore()
+  const [offset, setOffset] = useState(0)
+  const tip = tipFor(offset)
+  const kid = data.settings.kidName
+  const week = useMemo(() => {
+    const thisWeek = data.submissions.filter((x) => sameWeek(x.date))
+    const approved = thisWeek.filter((x) => x.status === 'approved')
+    const ws = weekStartKey()
+    const ledgerWeek = data.ledger.filter((e) => dayKey(new Date(e.createdAt)) >= ws)
+    return {
+      chores: approved.filter((x) => x.type === 'chore').length,
+      bonus: approved.filter((x) => x.type === 'bonus').length,
+      school: approved.filter((x) => x.type === 'homework').length,
+      photos: approved.filter((x) => x.photo).length,
+      earned: ledgerWeek.filter((e) => e.amount > 0 && !e.refId?.startsWith('refund:')).reduce((a, e) => a + e.amount, 0),
+      spent: -ledgerWeek.filter((e) => e.amount < 0).reduce((a, e) => a + e.amount, 0),
+      streak: streak(data.submissions),
+    }
+  }, [data.submissions, data.ledger])
+  return (
+    <>
+      <motion.section className="card quote-card" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+        <span className="quote-mark">“</span>
+        <p>{quoteFor()}</p>
+      </motion.section>
+      <section className="card tip-card">
+        <div className="tip-head">
+          <span className="cat-label">💡 Parenting tip</span>
+          <button type="button" className="btn tiny ghost" onClick={() => setOffset((o) => o + 1)}>
+            Another tip
+          </button>
+        </div>
+        <AnimatePresence mode="wait">
+          <motion.div key={tip.title} initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }}>
+            <strong>{tip.title}</strong>
+            <p className="muted">{tip.body}</p>
+          </motion.div>
+        </AnimatePresence>
+      </section>
+      <section className="card">
+        <h3>📊 {kid}'s week so far</h3>
+        <div className="week-stats">
+          <div><strong>{week.chores}</strong><small>chores</small></div>
+          <div><strong>{week.bonus}</strong><small>bonus quests</small></div>
+          <div><strong>{week.school}</strong><small>school stars</small></div>
+          <div><strong>{week.photos}</strong><small>photos</small></div>
+          <div><strong>+{week.earned}</strong><small>stars earned</small></div>
+          <div><strong>{week.spent}</strong><small>stars spent</small></div>
+          <div><strong>🔥 {week.streak}</strong><small>day streak</small></div>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function Inbox() {
+  const { data, actions } = useStore()
+  const [approvingAll, setApprovingAll] = useState(false)
   const subs = data.submissions.filter((s) => s.status === 'pending')
   const orders = data.orders.filter((o) => o.status === 'requested')
   const wishes = data.wishes.filter((w) => w.status === 'pending')
@@ -109,7 +176,26 @@ function Inbox() {
   return (
     <div className="stack">
       {nothing && <Empty emoji="🌴">All caught up! New chores, prize picks and wishes from {data.settings.kidName} show up here instantly.</Empty>}
-      {subs.length > 0 && <h2 className="section-title">✅ To approve ({subs.length})</h2>}
+      {subs.length > 0 && (
+        <div className="row">
+          <h2 className="section-title grow">✅ To approve ({subs.length})</h2>
+          {subs.length > 1 && (
+            <button
+              type="button"
+              className="btn tiny go"
+              disabled={approvingAll}
+              onClick={async () => {
+                setApprovingAll(true)
+                for (const x of subs) await actions.approveSubmission(x, pointsFor(x))
+                sounds.chime()
+                setApprovingAll(false)
+              }}
+            >
+              ✅ Approve all
+            </button>
+          )}
+        </div>
+      )}
       <AnimatePresence>
         {subs.map((s) => (
           <SubmissionCard key={s.id} sub={s} />
@@ -123,6 +209,7 @@ function Inbox() {
       {wishes.map((w) => (
         <WishCard key={w.id} wish={w} />
       ))}
+      <ParentToday />
       {recent.length > 0 && (
         <section className="card">
           <h3>Recently reviewed</h3>

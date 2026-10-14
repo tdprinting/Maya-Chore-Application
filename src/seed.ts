@@ -64,7 +64,10 @@ export const BONUS_SEEDS: ChoreSeed[] = [
 
 const PRIZE_SEEDS: Array<[string, string, number, number]> = [
   ['Pick the family movie night movie', '🎬', 0, 100],
+  ['15 extra minutes of tablet time', '📱', 0, 60],
   ['30 extra minutes of tablet time', '📱', 0, 120],
+  ['1 extra hour of tablet time', '📱', 0, 220],
+  ['Tablet movie marathon (2 hours, weekend)', '🍿', 0, 400],
   ['Stay up 30 minutes late (weekend)', '🌙', 0, 150],
   ['Kitty sticker pack', '🎀', 5, 125],
   ['Ice cream date', '🍦', 6, 150],
@@ -145,5 +148,5 @@ export const CATEGORY_LABELS: Record<ChoreCategory, string> = {
 
 export const EMOJI_CHOICES = [
   '⭐', '🐈', '🐠', '🪸', '🍼', '🧺', '🧦', '🛏️', '🧹', '🍽️', '🧽', '🗑️', '🪴', '📚', '🦉', '⌨️', '🎤',
-  '🎨', '💖', '💌', '🛴', '🎒', '🌺', '🎀', '👽', '🌊', '🍦', '🎬', '📱', '🎁', '🧸', '🐟', '🏖️', '🍕',
+  '🎨', '💖', '💌', '🛴', '🎒', '🌺', '🎀', '👽', '🌊', '🍦', '🎬', '📱', '🍿', '🎁', '🧸', '🐟', '🏖️', '🍕',
 ]

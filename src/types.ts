@@ -126,6 +126,20 @@ export interface LoveNote {
   createdAt: string
 }
 
+/** A chat bubble between Maya and her parents. */
+export interface ChatMessage {
+  id: string
+  kind: 'message'
+  from: 'kid' | 'parent'
+  author: string
+  text: string
+  /** A big sticker emoji sent on its own. */
+  sticker?: string
+  /** A drawing or picture attached to the message. */
+  photo?: string
+  createdAt: string
+}
+
 export interface Settings {
   id: 'settings'
   kind: 'settings'
@@ -138,6 +152,6 @@ export interface Settings {
   sounds: boolean
 }
 
-export type Item = Chore | Submission | Prize | Order | Wish | LedgerEntry | LoveNote | Settings
+export type Item = Chore | Submission | Prize | Order | Wish | LedgerEntry | LoveNote | ChatMessage | Settings
 
 export type Kind = Item['kind']

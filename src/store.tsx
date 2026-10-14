@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import type { Backend, Change, Membership } from './backend'
 import { balance, byNewest, dayKey, nowIso, ofKind, pointsFor, uid } from './logic'
 import { defaultSettings } from './seed'
-import type { Chore, Item, LedgerEntry, Order, OrderStatus, Prize, Settings, Submission, Wish } from './types'
+import type { ChatMessage, Chore, Item, LedgerEntry, Order, OrderStatus, Prize, Settings, Submission, Wish } from './types'
 
 /** Something that just happened on another device, for toasts and celebrations. */
 export interface FamilyEvent {
@@ -20,6 +20,7 @@ export interface FamilyData {
   wishes: Wish[]
   ledger: LedgerEntry[]
   notes: Extract<Item, { kind: 'note' }>[]
+  messages: ChatMessage[]
   balance: number
 }
 
@@ -35,6 +36,7 @@ function derive(items: Record<string, Item>): FamilyData {
     wishes: ofKind(all, 'wish').sort(byNewest),
     ledger,
     notes: ofKind(all, 'note').sort(byNewest),
+    messages: ofKind(all, 'message').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     balance: balance(ledger),
   }
 }
@@ -183,6 +185,11 @@ function makeActions(backend: Backend, get: () => FamilyData, apply: (c: Change)
 
     async updateSettings(patch: Partial<Settings>) {
       await put({ ...get().settings, ...patch })
+    },
+
+    async sendMessage(from: ChatMessage['from'], author: string, text: string, sticker?: string, photo?: Blob) {
+      const ref = photo ? await backend.uploadPhoto(photo) : undefined
+      await put({ id: uid(), kind: 'message', from, author, text, sticker, photo: ref, createdAt: nowIso() })
     },
 
     async addNote(text: string, from: string) {

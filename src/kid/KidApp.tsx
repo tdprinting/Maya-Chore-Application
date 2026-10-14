@@ -1,5 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Chat, useUnreadCount } from '../Chat'
+import type { MascotMood } from '../art/Mascot'
+import { Icon } from '../art/Icons'
+import { DrawStudio } from '../draw/DrawStudio'
 import { BigCelebration, Empty, FloatingPoints, Mascot, Modal, Photo, PhotoPicker, Progress, Stars, TabBar, Toasts, type Tab, type Toast } from '../components'
 import { wordsForToday, noteForToday, randomCheer } from '../encouragement'
 import { originOf, smallWin, bigWin, sounds } from '../fx'
@@ -20,13 +24,25 @@ import { useStore } from '../store'
 import type { Chore, Order, Prize, Submission } from '../types'
 import { DAY_FULL, safeUrl, timeAgo } from '../util'
 
-type KidTab = 'home' | 'chores' | 'bonus' | 'school' | 'shop' | 'trophies'
+type KidTab = 'home' | 'chores' | 'bonus' | 'school' | 'shop' | 'draw' | 'chat' | 'trophies'
 
 export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
-  const { data, events, dismissEvent } = useStore()
+  const { data, actions, events, dismissEvent } = useStore()
   const [tab, setTab] = useState<KidTab>('home')
+  const tabRef = useRef(tab)
+  tabRef.current = tab
+  const unread = useUnreadCount('kid')
   const [toasts, setToasts] = useState<Toast[]>([])
   const [floating, setFloating] = useState<{ id: string; text: string } | null>(null)
+
+  const [buddy, setBuddy] = useState<{ mood: MascotMood; say?: string; id: number }>({ mood: 'wave', id: 0 })
+  const react = useCallback((mood: MascotMood, say?: string) => setBuddy((b) => ({ mood, say, id: b.id + 1 })), [])
+  // Lilo settles back to idle a few seconds after reacting.
+  useEffect(() => {
+    if (!buddy.id) return
+    const t = setTimeout(() => setBuddy((b) => ({ mood: idleMood(), id: b.id })), 3500)
+    return () => clearTimeout(t)
+  }, [buddy.id])
 
   const pushToast = useCallback((t: Omit<Toast, 'id'>) => setToasts((ts) => [...ts, { ...t, id: uid() }]), [])
   const dismissToast = useCallback((id: string) => setToasts((ts) => ts.filter((t) => t.id !== id)), [])
@@ -39,6 +55,7 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
       if (item.kind === 'submission' && prev?.kind === 'submission' && prev.status === 'pending') {
         if (item.status === 'approved') {
           smallWin()
+          react('cheer', 'Woohoo! Stars for you!')
           setFloating({ id: uid(), text: `+${item.pointsAwarded} ⭐` })
           pushToast({ emoji: '🎉', title: `Approved: ${item.title}!`, body: item.parentNote || `You earned ${item.pointsAwarded} stars!` })
         } else if (item.status === 'rejected') {
@@ -61,8 +78,12 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
           title: item.status === 'added' ? `${item.title} is in the shop now!` : `${item.title} wasn't added`,
           body: item.parentNote,
         })
+      } else if (item.kind === 'message' && !prev && item.from === 'parent') {
+        sounds.chime()
+        if (tabRef.current !== 'chat') pushToast({ emoji: '💬', title: `${item.author} says:`, body: item.sticker ?? item.text })
       } else if (item.kind === 'note' && !prev) {
         sounds.chime()
+        react('love', 'A love note! 💖')
         pushToast({ emoji: '💌', title: `A love note from ${item.from}!`, body: item.text })
       } else if (item.kind === 'ledger' && !prev && !item.refId) {
         if (item.amount > 0) smallWin()
@@ -77,15 +98,20 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
   const todoCount = todays.filter((c) => !submissionForDay(data.submissions, c.id, today)).length
 
   const tabs: Tab<KidTab>[] = [
-    { id: 'home', label: 'Home', icon: '🏠' },
-    { id: 'chores', label: 'Chores', icon: '✅', badge: todoCount },
-    { id: 'bonus', label: 'Bonus', icon: '🚀' },
-    { id: 'school', label: 'School', icon: '🧠' },
-    { id: 'shop', label: 'Prizes', icon: '🎁' },
-    { id: 'trophies', label: 'Trophies', icon: '🏆' },
+    { id: 'home', label: 'Home', icon: 'home' },
+    { id: 'chores', label: 'Chores', icon: 'chores', badge: todoCount },
+    { id: 'bonus', label: 'Bonus', icon: 'bonus' },
+    { id: 'school', label: 'School', icon: 'school' },
+    { id: 'shop', label: 'Prizes', icon: 'prizes' },
+    { id: 'draw', label: 'Draw', icon: 'draw' },
+    { id: 'chat', label: 'Chat', icon: 'chat', badge: unread },
+    { id: 'trophies', label: 'Trophies', icon: 'trophies' },
   ]
 
-  const onEarned = (text: string) => setFloating({ id: uid(), text })
+  const onEarned = (text: string) => {
+    setFloating({ id: uid(), text })
+    react('cheer', randomCheer())
+  }
 
   // Pop-ups render outside the app container, so the theme goes on <body> too.
   useEffect(() => {
@@ -120,13 +146,60 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
             {tab === 'bonus' && <KidBonus onEarned={onEarned} />}
             {tab === 'school' && <KidSchool onEarned={onEarned} />}
             {tab === 'shop' && <KidShop />}
+            {tab === 'draw' && (
+              <DrawStudio
+                kidName={data.settings.kidName}
+                onSend={async (image, caption) => {
+                  await actions.sendMessage('kid', data.settings.kidName, caption || 'I drew this for you! 🎨', undefined, image)
+                  react('love', 'They will love it! 💖')
+                }}
+              />
+            )}
+            {tab === 'chat' && <Chat side="kid" />}
             {tab === 'trophies' && <KidTrophies />}
           </motion.div>
         </AnimatePresence>
       </main>
       <TabBar tabs={tabs} current={tab} onChange={(t) => (sounds.pop(), setTab(t))} />
+      {tab !== 'draw' && <Buddy mood={buddy.mood} say={buddy.say} sayKey={buddy.id} onTap={() => react(pick(['love', 'cheer', 'wink', 'wow'] as MascotMood[]), pick(BUDDY_LINES))} />}
       <Toasts toasts={toasts} onDismiss={dismissToast} />
       {floating && <FloatingPoints key={floating.id} text={floating.text} onDone={() => setFloating(null)} />}
+    </div>
+  )
+}
+
+const BUDDY_LINES = ['Meow! You are awesome!', 'Purr… I love you!', 'Want to do a bonus quest?', 'High paw! 🐾', 'You are so smart!', 'Let’s earn some stars!', 'Draw me something? 🎨']
+
+function pick<T>(list: T[]): T {
+  return list[Math.floor(Math.random() * list.length)]
+}
+
+function idleMood(): MascotMood {
+  const h = new Date().getHours()
+  return h >= 20 || h < 6 ? 'sleepy' : 'happy'
+}
+
+/** Lilo hangs out in the corner and reacts to everything Maya does. */
+function Buddy({ mood, say, sayKey, onTap }: { mood: MascotMood; say?: string; sayKey: number; onTap: () => void }) {
+  return (
+    <div className="buddy">
+      <AnimatePresence>
+        {say && (
+          <motion.div
+            key={sayKey}
+            className="buddy-say"
+            initial={{ opacity: 0, scale: 0.4, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.6 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 18 }}
+          >
+            {say}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <motion.button type="button" className="buddy-btn" whileTap={{ scale: 0.8, rotate: -8 }} onClick={onTap} aria-label="Lilo the cat">
+        <Mascot size={92} mood={mood} />
+      </motion.button>
     </div>
   )
 }
@@ -169,7 +242,9 @@ function KidHome({ goTo }: { goTo: (t: KidTab) => void }) {
 
       <div className="grid-2">
         <button type="button" className="card stat-card pink" onClick={() => goTo('chores')}>
-          <div className="stat-emoji">✅</div>
+          <div className="stat-emoji">
+            <Icon name="chores" size={52} active />
+          </div>
           <div className="stat-big">
             {done} / {todays.length}
           </div>
@@ -177,7 +252,9 @@ function KidHome({ goTo }: { goTo: (t: KidTab) => void }) {
           <Progress value={done} max={todays.length} />
         </button>
         <div className="card stat-card blue">
-          <div className="stat-emoji">🔥</div>
+          <div className="stat-emoji">
+            <Icon name="fire" size={52} active={days > 0} />
+          </div>
           <div className="stat-big">{days}</div>
           <div>{days === 1 ? 'day' : 'days'} helping in a row</div>
         </div>
