@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { BigCelebration, FloatingPoints } from '../components'
 import { bigWin, smallWin, sounds } from '../fx'
-import { choresForDay, uid } from '../logic'
+import { LuckySpinOverlay } from '../fun/LuckySpin'
+import { RARITY_LABEL, resetSeenStickers, stickerFor } from '../fun/stickers'
+import { MOODS, choresForDay, dayKey, moodInfo, pointsFor, spinForDay, uid } from '../logic'
 import { useStore } from '../store'
 
 /** A fake "photo" so photo features can be tested without a camera. */
@@ -35,6 +37,7 @@ export function DevMode() {
   const [floating, setFloating] = useState<{ id: string; text: string } | null>(null)
   const [msg, setMsg] = useState('')
   const [confirmClear, setConfirmClear] = useState(false)
+  const [testSpin, setTestSpin] = useState(false)
   const kid = data.settings.kidName
 
   const done = (text: string) => {
@@ -81,14 +84,77 @@ export function DevMode() {
         <button type="button" className="btn" onClick={() => setFloating({ id: uid(), text: `+${15 + Math.floor(Math.random() * 20)} ⭐` })}>
           ⭐ Floating stars
         </button>
-        <button type="button" className="btn" onClick={() => sounds.chime()}>
-          🔔 Chime
+      </div>
+
+      <div className="cat-label">Sound board</div>
+      <div className="dev-grid">
+        {(Object.keys(sounds) as Array<keyof typeof sounds>).map((name) => (
+          <button type="button" key={name} className="btn tiny" onClick={() => (sounds[name] as () => void)()}>
+            🔊 {name}
+          </button>
+        ))}
+      </div>
+
+      <div className="cat-label">Lucky Spin, stickers & feelings</div>
+      <div className="dev-grid">
+        <button type="button" className="btn" onClick={() => setTestSpin(true)}>
+          🎡 Test spin (no stars)
         </button>
-        <button type="button" className="btn" onClick={() => sounds.ding()}>
-          📣 Parent ding
+        <button
+          type="button"
+          className="btn"
+          onClick={run(`${kid} can spin again today`, async () => {
+            if (!spinForDay(data.ledger, dayKey())) throw new Error(`${kid} hasn't spun today yet`)
+            await actions.resetSpin()
+          })}
+        >
+          🔄 Reset today's spin
         </button>
-        <button type="button" className="btn" onClick={() => sounds.fanfare()}>
-          🎺 Fanfare
+        <button
+          type="button"
+          className="btn"
+          onClick={async () => {
+            try {
+              const c = anyChore() ?? anyBonus()
+              if (!c) throw new Error('No chores in the catalogue')
+              const sub = await actions.submitChore(c, undefined, 'Dev mode: sticker test')
+              await actions.approveSubmission(sub, pointsFor(sub))
+              const st = stickerFor(sub.id)
+              sounds.unlock()
+              done(`✓ New sticker: ${st.emoji} ${st.name} (${RARITY_LABEL[st.rarity]})`)
+            } catch (e) {
+              done(`✗ ${(e as Error).message}`)
+            }
+          }}
+        >
+          🏷️ Approve a chore → new sticker
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            resetSeenStickers()
+            sounds.whoosh()
+            done('✓ Stickers on this device will peel again')
+          }}
+        >
+          🎁 Re-wrap stickers (this device)
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={async () => {
+            const m = pick(MOODS) ?? MOODS[3]
+            try {
+              await actions.checkInMood(m.level, 'Dev mode: test check-in')
+              sounds.meow()
+              done(`✓ Mood check-in: ${moodInfo(m.level).emoji} ${m.label}`)
+            } catch (e) {
+              done(`✗ ${(e as Error).message}`)
+            }
+          }}
+        >
+          😊 Mood check-in
         </button>
       </div>
 
@@ -184,7 +250,7 @@ export function DevMode() {
               return
             }
             setConfirmClear(false)
-            const ids = [...data.submissions, ...data.orders, ...data.wishes, ...data.ledger].map((i) => i.id)
+            const ids = [...data.submissions, ...data.orders, ...data.wishes, ...data.ledger, ...data.moods].map((i) => i.id)
             await run(`Cleared ${ids.length} entries. Stars are back to 0.`, async () => {
               for (const id of ids) await actions.remove(id)
             })()
@@ -194,7 +260,7 @@ export function DevMode() {
         </button>
       </div>
       <p className="muted small">
-        Clearing removes every chore submission, prize purchase, wish and star entry ({backend.mode === 'demo' ? 'demo data' : 'for the whole family'}). Chores,
+        Clearing removes every chore submission, prize purchase, wish, star entry, Lucky Spin and mood check-in ({backend.mode === 'demo' ? 'demo data' : 'for the whole family'}). Chores,
         prizes, the schedule and love notes stay.
       </p>
       {msg && <p className="dev-msg">{msg}</p>}
@@ -207,6 +273,7 @@ export function DevMode() {
         onDone={() => setParty(false)}
       />
       {floating && <FloatingPoints key={floating.id} text={floating.text} onDone={() => setFloating(null)} />}
+      <LuckySpinOverlay open={testSpin} preview onClose={() => setTestSpin(false)} />
     </section>
   )
 }

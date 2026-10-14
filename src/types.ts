@@ -140,6 +140,20 @@ export interface ChatMessage {
   createdAt: string
 }
 
+export type MoodLevel = 1 | 2 | 3 | 4 | 5
+
+/** Maya's daily feelings check-in. One per day: id is `mood-YYYY-MM-DD` (plus the family). */
+export interface Mood {
+  id: string
+  kind: 'mood'
+  /** Local date, YYYY-MM-DD. */
+  date: string
+  mood: MoodLevel
+  note?: string
+  createdAt: string
+  updatedAt?: string
+}
+
 export interface Settings {
   id: 'settings'
   kind: 'settings'
@@ -152,6 +166,6 @@ export interface Settings {
   sounds: boolean
 }
 
-export type Item = Chore | Submission | Prize | Order | Wish | LedgerEntry | LoveNote | ChatMessage | Settings
+export type Item = Chore | Submission | Prize | Order | Wish | LedgerEntry | LoveNote | ChatMessage | Mood | Settings
 
 export type Kind = Item['kind']

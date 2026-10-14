@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import './draw.css'
+import { sounds } from '../fx'
 import { DrawEngine } from './engine'
 import { BACKGROUNDS, paintBackground, toPt } from './brushes'
 import { SHAPES, TEMPLATES, drawTemplate, partFill } from './shapes'
@@ -212,10 +213,10 @@ export function DrawStudio({
       const k = e.key.toLowerCase()
       if (k === 'z' && !e.shiftKey) {
         e.preventDefault()
-        engineRef.current?.undo()
+        undo()
       } else if ((k === 'z' && e.shiftKey) || k === 'y') {
         e.preventDefault()
-        engineRef.current?.redo()
+        redo()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -247,6 +248,8 @@ export function DrawStudio({
       /* ignore */
     }
     eng.begin(toPt(e.nativeEvent, stage.getBoundingClientRect(), eng.w, eng.h), e.pointerId, e.pointerType)
+    if (tool === 'shape' || tool === 'sticker') sounds.boing()
+    else if (tool === 'fill') sounds.whoosh()
     if (COLOR_TOOLS.includes(tool) && tool !== 'text') rememberColor(color)
   }
 
@@ -269,6 +272,17 @@ export function DrawStudio({
   }
 
   /* ---------- actions ---------- */
+
+  const undo = () => {
+    if (!engineRef.current?.canUndo) return
+    sounds.pop()
+    engineRef.current.undo()
+  }
+  const redo = () => {
+    if (!engineRef.current?.canRedo) return
+    sounds.pop()
+    engineRef.current.redo()
+  }
 
   const pickColor = (c: string) => {
     setColor(c)
@@ -296,6 +310,7 @@ export function DrawStudio({
       return
     }
     setClearArmed(false)
+    sounds.whoosh(true)
     engineRef.current?.clear()
     showToast('Fresh page! (Undo brings it back)')
   }
@@ -397,6 +412,7 @@ export function DrawStudio({
       setSheet(null)
       setCaption('')
       setCelebrate(true)
+      sounds.tada()
       void saveToGallery(true)
     } catch {
       setSendState('error')
@@ -444,11 +460,11 @@ export function DrawStudio({
           <span className="ds-title-text">{kidName}&rsquo;s Art Studio</span>
         </div>
         <div className="ds-actions">
-          <button className="ds-act" onClick={() => engineRef.current?.undo()} disabled={!canUndo} aria-label="Undo">
+          <button className="ds-act" onClick={undo} disabled={!canUndo} aria-label="Undo">
             <UndoIcon />
             <span>Undo</span>
           </button>
-          <button className="ds-act" onClick={() => engineRef.current?.redo()} disabled={!canRedo} aria-label="Redo">
+          <button className="ds-act" onClick={redo} disabled={!canRedo} aria-label="Redo">
             <UndoIcon flip />
             <span>Redo</span>
           </button>
@@ -490,6 +506,7 @@ export function DrawStudio({
               key={t.id}
               className={`ds-tool ${tool === t.id ? 'ds-selected' : ''}`}
               onClick={() => {
+                if (tool !== t.id) sounds.blip()
                 setTool(t.id)
                 setTextAt(null)
               }}

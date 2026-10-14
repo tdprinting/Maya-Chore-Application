@@ -1,4 +1,4 @@
-import type { Chore, Effort, Item, LedgerEntry, Order, Prize, Submission } from './types'
+import type { Chore, Effort, Item, LedgerEntry, Mood, MoodLevel, Order, Prize, Submission } from './types'
 
 export function uid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
@@ -202,4 +202,77 @@ export function stableKey(value: unknown): string {
     .filter((k) => obj[k] !== undefined)
     .sort()
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableKey(obj[k])}`).join(',')}}`
+}
+
+// ---------------------------------------------------------------------------
+// Daily Lucky Spin
+
+/** Stars on the wheel, and how likely each one is (out of 100). Small prizes come up most. */
+export const SPIN_WEIGHTS: ReadonlyArray<readonly [stars: number, weight: number]> = [
+  [1, 20],
+  [2, 18],
+  [3, 16],
+  [4, 13],
+  [5, 10],
+  [6, 8],
+  [7, 6],
+  [8, 4],
+  [9, 3],
+  [10, 2],
+]
+
+/** Turns a random number in [0, 1) into a prize of 1 to 10 stars, weighted toward small ones. */
+export function pickSpin(r: number): number {
+  const total = SPIN_WEIGHTS.reduce((s, [, w]) => s + w, 0)
+  let x = Math.min(Math.max(r, 0), 0.999999) * total
+  for (const [stars, w] of SPIN_WEIGHTS) {
+    if (x < w) return stars
+    x -= w
+  }
+  return SPIN_WEIGHTS[SPIN_WEIGHTS.length - 1][0]
+}
+
+/** The ledger refId that marks the Lucky Spin for a day. */
+export function spinRef(day: string): string {
+  return `spin:${day}`
+}
+
+/** Today's Lucky Spin entry, if Maya already spun. */
+export function spinForDay(ledger: LedgerEntry[], day: string = dayKey()): LedgerEntry | undefined {
+  return ledger.find((e) => e.refId === spinRef(day))
+}
+
+// ---------------------------------------------------------------------------
+// Feelings check-in
+
+export interface MoodInfo {
+  level: MoodLevel
+  label: string
+  emoji: string
+  color: string
+  /** What Lilo says back. */
+  reply: string
+}
+
+export const MOODS: MoodInfo[] = [
+  { level: 1, label: 'Sad', emoji: '😢', color: '#6ec6f0', reply: 'Big kitty hugs! Mom & Dad are always here for you. 💙' },
+  { level: 2, label: 'Grumpy', emoji: '😤', color: '#a98bff', reply: 'Grumpy days happen. Want a cuddle or a snack? 💜' },
+  { level: 3, label: 'Okay', emoji: '🙂', color: '#7ee0c3', reply: 'Okay is okay! Let’s find something fun today. 🌴' },
+  { level: 4, label: 'Happy', emoji: '😊', color: '#ffd84d', reply: 'Yay! Your smile makes Lilo purr! 💛' },
+  { level: 5, label: 'Super happy', emoji: '🤩', color: '#ff6fae', reply: 'WOW! Sparkly super day! Let’s celebrate! 💖' },
+]
+
+export function moodInfo(level: MoodLevel): MoodInfo {
+  return MOODS[Math.min(5, Math.max(1, level)) - 1]
+}
+
+export function moodForDay(moods: Mood[], day: string = dayKey()): Mood | undefined {
+  return moods.find((m) => m.date === day)
+}
+
+/** The last `n` local days, oldest first, ending today. */
+export function lastDays(n: number, today: Date = new Date()): string[] {
+  const out: string[] = []
+  for (let i = n - 1; i >= 0; i--) out.push(dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)))
+  return out
 }

@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Backend, Change, Membership } from './backend'
-import { balance, byNewest, dayKey, nowIso, ofKind, pointsFor, stableKey, uid } from './logic'
+import { balance, byNewest, dayKey, nowIso, ofKind, pickSpin, pointsFor, spinForDay, spinRef, stableKey, uid } from './logic'
 import { defaultSettings } from './seed'
-import type { ChatMessage, Chore, Item, LedgerEntry, Order, OrderStatus, Prize, Settings, Submission, Wish } from './types'
+import type { ChatMessage, Chore, Item, LedgerEntry, Mood, MoodLevel, Order, OrderStatus, Prize, Settings, Submission, Wish } from './types'
 
 /** Something that just happened on another device, for toasts and celebrations. */
 export interface FamilyEvent {
@@ -21,6 +21,8 @@ export interface FamilyData {
   ledger: LedgerEntry[]
   notes: Extract<Item, { kind: 'note' }>[]
   messages: ChatMessage[]
+  /** Feelings check-ins, newest day first. */
+  moods: Mood[]
   balance: number
 }
 
@@ -37,6 +39,7 @@ export function derive(items: Record<string, Item>): FamilyData {
     ledger,
     notes: ofKind(all, 'note').sort(byNewest),
     messages: ofKind(all, 'message').sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    moods: ofKind(all, 'mood').sort((a, b) => b.date.localeCompare(a.date)),
     balance: balance(ledger),
   }
 }
@@ -50,8 +53,13 @@ interface LocalStore {
   restore: (id: string, previous: Item | undefined) => void
 }
 
-export function makeActions(backend: Backend, store: LocalStore) {
+/**
+ * `scope` (the family id) keeps once-a-day ids like `spin-2026-10-14` unique in the shared database,
+ * where every family's items live in one table.
+ */
+export function makeActions(backend: Backend, store: LocalStore, scope = '') {
   const { get } = store
+  const daily = (prefix: string, day: string) => (scope ? `${prefix}-${day}-${scope}` : `${prefix}-${day}`)
   // Every write shows up on this device immediately (so a second tap already sees the new
   // balance), then goes to the backend. If the backend refuses it, the change is undone.
   const put = async (item: Item) => {
@@ -234,6 +242,40 @@ export function makeActions(backend: Backend, store: LocalStore) {
     async addNote(text: string, from: string) {
       await put({ id: uid(), kind: 'note', text, from, createdAt: nowIso() })
     },
+
+    /**
+     * Today's Lucky Spin: picks 1-10 bonus stars and pays them straight away, before the wheel
+     * even starts turning. Once a day: the ledger id is fixed per day, so it can't pay twice.
+     */
+    async spinWheel(day: string = dayKey(), r: number = Math.random()): Promise<{ stars: number; already: boolean }> {
+      const done = spinForDay(get().ledger, day)
+      if (done) return { stars: done.amount, already: true }
+      const stars = pickSpin(r)
+      await put(ledger(stars, 'Lucky Spin', '🎡', spinRef(day), daily('spin', day)))
+      return { stars, already: false }
+    },
+
+    /** Dev mode: lets Maya spin again today (takes back today's spin stars). */
+    async resetSpin(day: string = dayKey()) {
+      const entries = get().ledger.filter((e) => e.refId === spinRef(day))
+      await Promise.all(entries.map((e) => remove(e.id)))
+    },
+
+    /** Maya's feelings check-in. One per day; picking again changes today's answer. */
+    async checkInMood(mood: MoodLevel, note?: string, day: string = dayKey()) {
+      const current = get().moods.find((m) => m.date === day)
+      const item: Mood = {
+        id: current?.id ?? daily('mood', day),
+        kind: 'mood',
+        date: day,
+        mood,
+        note: note?.trim() || undefined,
+        createdAt: current?.createdAt ?? nowIso(),
+        updatedAt: current ? nowIso() : undefined,
+      }
+      await put(item)
+      return item
+    },
   }
 }
 
@@ -306,8 +348,8 @@ export function StoreProvider({ backend, membership, children }: { backend: Back
       if (previous) apply({ type: 'put', item: previous })
       else if (itemsRef.current[id]) setItem(id, undefined)
     }
-    return makeActions(backend, { get: getData, apply, restore })
-  }, [backend, getData])
+    return makeActions(backend, { get: getData, apply, restore }, membership.familyId)
+  }, [backend, getData, membership.familyId])
 
   useEffect(() => {
     let alive = true

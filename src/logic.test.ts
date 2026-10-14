@@ -5,8 +5,11 @@ import {
   bonusUsesThisWeek,
   choresForDay,
   levelFor,
+  lastDays,
   lifetimeEarned,
+  pickSpin,
   pointsFor,
+  SPIN_WEIGHTS,
   streak,
   submissionForDay,
   suggestPhotoBonus,
@@ -16,6 +19,7 @@ import {
   weekStartKey,
 } from './logic'
 import { seedItems } from './seed'
+import { STICKERS, stickerCollection, stickerFor } from './fun/stickers'
 import type { Backend, Change } from './backend'
 import { derive, makeActions } from './store'
 import type { Chore, Item, LedgerEntry, Prize, Submission } from './types'
@@ -185,5 +189,108 @@ describe('actions', () => {
     await actions.approveWish(wish, 50, '🪁', 'Kite', 'Great find!')
     expect(data().wishes[0].parentNote).toBe('Great find!')
     expect(data().prizes).toHaveLength(1)
+  })
+})
+
+describe('lucky spin', () => {
+  it('always lands on 1 to 10 stars', () => {
+    expect(pickSpin(0)).toBe(1)
+    expect(pickSpin(0.999999)).toBe(10)
+    expect(pickSpin(1)).toBe(10)
+    expect(pickSpin(-1)).toBe(1)
+    for (let i = 0; i < 500; i++) {
+      const n = pickSpin(Math.random())
+      expect(n).toBeGreaterThanOrEqual(1)
+      expect(n).toBeLessThanOrEqual(10)
+    }
+  })
+
+  it('is weighted toward small prizes', () => {
+    expect(SPIN_WEIGHTS.reduce((s, [, w]) => s + w, 0)).toBe(100)
+    const counts = new Map<number, number>()
+    const steps = 10_000
+    for (let i = 0; i < steps; i++) {
+      const n = pickSpin(i / steps)
+      counts.set(n, (counts.get(n) ?? 0) + 1)
+    }
+    expect(counts.get(1)).toBeGreaterThan(counts.get(5)!)
+    expect(counts.get(5)).toBeGreaterThan(counts.get(10)!)
+    const small = [1, 2, 3].reduce((s, n) => s + (counts.get(n) ?? 0), 0)
+    expect(small / steps).toBeGreaterThan(0.5)
+    let mean = 0
+    for (const [n, c] of counts) mean += (n * c) / steps
+    expect(mean).toBeLessThan(4)
+  })
+})
+
+describe('stickers', () => {
+  it('gives the same sticker for the same submission', () => {
+    expect(stickerFor('abc-123')).toBe(stickerFor('abc-123'))
+    expect(STICKERS).toContain(stickerFor('anything'))
+    expect(new Set(STICKERS.map((s) => s.id)).size).toBe(STICKERS.length)
+  })
+
+  it('makes sparkly stickers rare', () => {
+    const tiers = { common: 0, rare: 0, sparkly: 0 }
+    const seen = new Set<string>()
+    for (let i = 0; i < 4000; i++) {
+      const s = stickerFor(`sub-${i}`)
+      tiers[s.rarity]++
+      seen.add(s.id)
+    }
+    expect(tiers.common).toBeGreaterThan(tiers.rare)
+    expect(tiers.rare).toBeGreaterThan(tiers.sparkly)
+    expect(tiers.sparkly).toBeGreaterThan(0)
+    // Every sticker can be found eventually.
+    expect(seen.size).toBe(STICKERS.length)
+  })
+
+  it('collects stickers from approved work only', () => {
+    const subs = [sub({ id: 'a', status: 'approved' }), sub({ id: 'a2', status: 'pending' }), sub({ id: 'b', status: 'rejected' })]
+    const col = stickerCollection(subs)
+    expect([...col.values()].reduce((s, c) => s + c.count, 0)).toBe(1)
+    expect(col.has(stickerFor('a').id)).toBe(true)
+  })
+})
+
+describe('daily fun actions', () => {
+  const ledgerOnly = (items: Item[]) => {
+    let map: Record<string, Item> = Object.fromEntries(items.map((i) => [i.id, i]))
+    const backend = { put: async () => undefined, remove: async () => undefined } as unknown as Backend
+    const apply = (c: Change) => {
+      const id = c.type === 'put' ? c.item.id : c.id
+      const prev = map[id]
+      map = { ...map }
+      if (c.type === 'put') map[id] = c.item
+      else delete map[id]
+      return prev
+    }
+    const actions = makeActions(backend, { get: () => derive(map), apply, restore: () => undefined }, 'fam1')
+    return { actions, data: () => derive(map) }
+  }
+
+  it('pays the Lucky Spin once a day', async () => {
+    const { actions, data } = ledgerOnly([])
+    const first = await actions.spinWheel('2026-10-14', 0)
+    const again = await actions.spinWheel('2026-10-14', 0.99)
+    expect(first).toEqual({ stars: 1, already: false })
+    expect(again).toEqual({ stars: 1, already: true })
+    expect(data().balance).toBe(1)
+    expect(data().ledger[0].id).toBe('spin-2026-10-14-fam1')
+    await actions.spinWheel('2026-10-15', 0.99)
+    expect(data().balance).toBe(11)
+    await actions.resetSpin('2026-10-15')
+    expect(data().balance).toBe(1)
+  })
+
+  it('keeps one mood per day', async () => {
+    const { actions, data } = ledgerOnly([])
+    await actions.checkInMood(4, ' yay ', '2026-10-14')
+    await actions.checkInMood(2, '', '2026-10-14')
+    expect(data().moods).toHaveLength(1)
+    expect(data().moods[0]).toMatchObject({ id: 'mood-2026-10-14-fam1', mood: 2, note: undefined })
+    expect(lastDays(7, new Date(2026, 9, 14))).toEqual([
+      '2026-10-08', '2026-10-09', '2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14',
+    ])
   })
 })

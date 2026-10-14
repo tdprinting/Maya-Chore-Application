@@ -1,0 +1,829 @@
+/* =========================================================
+   Fun features: Lucky Spin, Sticker Album, feelings check-in.
+   Flat kawaii: solid colors, white rounded cards, chunky lips.
+   ========================================================= */
+
+.fun-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.fun-card {
+  position: relative;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 14px !important;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+section.fun-card {
+  cursor: default;
+}
+
+.fun-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fun-card-text strong {
+  font-size: 1.2rem;
+  color: var(--navy);
+}
+
+.fun-card-text small {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.fun-badge {
+  position: absolute;
+  top: -10px;
+  right: 12px;
+  background: var(--yellow);
+  color: var(--navy);
+  font-weight: 800;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  box-shadow: 0 3px 0 var(--yellow-deep);
+  letter-spacing: 0.04em;
+}
+
+.fun-badge.new {
+  background: var(--pink);
+  color: #fff;
+  box-shadow: 0 3px 0 var(--pink-deep);
+}
+
+/* ---------- Lucky Spin card ---------- */
+
+.spin-card {
+  background: var(--yellow-soft) !important;
+  box-shadow: 0 5px 0 #f1d777 !important;
+}
+
+.spin-card.done {
+  background: #f3f6fb !important;
+  box-shadow: 0 5px 0 #dbe3ef !important;
+  cursor: default;
+}
+
+.spin-card.done .spin-card-wheel {
+  filter: saturate(0.35);
+  opacity: 0.75;
+}
+
+.spin-card-wheel {
+  display: inline-flex;
+  flex: none;
+}
+
+/* ---------- Overlay ---------- */
+
+.fun-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(47, 74, 138, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.fun-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  border: 0;
+  background: #eef4fa;
+  color: var(--navy);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-weight: 800;
+  box-shadow: 0 3px 0 #d8e4f0;
+}
+
+.spin-stage {
+  position: relative;
+  width: min(460px, 100%);
+  background: #fff;
+  border-radius: 34px;
+  box-shadow: 0 8px 0 rgba(34, 56, 110, 0.35);
+  padding: 22px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--navy);
+}
+
+.spin-title {
+  margin: 0;
+  font-size: 2.2rem;
+  color: var(--pink);
+  text-shadow: 0 3px 0 var(--pink-deep);
+  display: flex;
+}
+
+.spin-title span {
+  display: inline-block;
+}
+
+.spin-sub {
+  margin: 0;
+  color: var(--muted);
+}
+
+.spin-wheel-wrap {
+  position: relative;
+  width: min(340px, 78vw);
+  aspect-ratio: 1;
+  margin: 14px 0 6px;
+}
+
+.spin-wheel {
+  width: 100%;
+  height: 100%;
+}
+
+.spin-pointer {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  margin-left: -22px;
+  z-index: 2;
+  transform-origin: 50% 30%;
+}
+
+.bulb {
+  fill: var(--yellow);
+  animation: bulbBlink 0.5s steps(1) infinite;
+}
+
+.bulb.odd {
+  animation-delay: 0.25s;
+}
+
+.bulb.off {
+  fill: #ffffff;
+  opacity: 0.85;
+  animation: bulbIdle 1.6s ease-in-out infinite;
+}
+
+@keyframes bulbBlink {
+  0% { fill: var(--yellow); }
+  50% { fill: #ffffff; }
+}
+
+@keyframes bulbIdle {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.spin-reveal {
+  position: absolute;
+  inset: 27%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+}
+
+.spin-rays {
+  position: absolute;
+  inset: -9%;
+  border-radius: 50%;
+  background: repeating-conic-gradient(var(--yellow) 0 12deg, transparent 12deg 24deg);
+  opacity: 0.85;
+  animation: spinRays 6s linear infinite;
+}
+
+@keyframes spinRays {
+  to { rotate: 360deg; }
+}
+
+.spin-reveal-num {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--pink);
+  box-shadow: 0 6px 0 var(--pink-deep);
+  border: 6px solid #fff;
+  color: #fff;
+  font-size: 2.8rem;
+  font-weight: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  text-shadow: 0 3px 0 var(--pink-deep);
+}
+
+.spin-reveal-num span {
+  font-size: 1.8rem;
+}
+
+.spin-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.spin-result strong {
+  font-size: 1.8rem;
+  color: var(--pink-deep);
+}
+
+.spin-result p {
+  margin: 0 0 6px;
+}
+
+.spin-btn {
+  min-width: 200px;
+}
+
+/* ---------- Mood check-in ---------- */
+
+.mood-card {
+  flex-direction: column !important;
+  align-items: stretch;
+  background: #fff;
+}
+
+.mood-card.done {
+  flex-direction: row !important;
+  align-items: center;
+  background: var(--mint-soft) !important;
+  box-shadow: 0 5px 0 #b5ecd9 !important;
+}
+
+.mood-q {
+  margin: 0;
+  color: var(--navy);
+}
+
+.inline-wiggle {
+  display: inline-block;
+}
+
+.mood-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mood-pick {
+  flex: 1 1 64px;
+  border: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 2px 8px;
+  border-radius: 20px;
+  color: var(--navy);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.mood-pick.on {
+  background: var(--pink-soft);
+  box-shadow: 0 4px 0 #f5b3cf;
+}
+
+.mood-face-wrap {
+  display: inline-flex;
+}
+
+.mood-send {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.mood-done-face {
+  flex: none;
+  display: inline-flex;
+}
+
+.mood-note {
+  font-style: italic;
+}
+
+.parent-mood-today {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.parent-mood-today .quote {
+  margin: 4px 0;
+}
+
+.mood-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px dashed #cfdbea;
+  color: #b8c7da;
+  font-weight: 800;
+}
+
+.mood-empty.big {
+  width: 60px;
+  height: 60px;
+  font-size: 1.6rem;
+}
+
+.mood-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.mood-day {
+  border: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border-radius: 14px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  transition: scale 0.25s var(--spring-big);
+}
+
+.mood-day:active {
+  scale: 0.9;
+}
+
+.mood-day.on {
+  background: var(--pink-soft);
+  color: var(--pink-deep);
+  font-weight: 700;
+}
+
+/* ---------- Stickers ---------- */
+
+.sticker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 30%;
+  background: var(--st-bg, #fff);
+  border: 5px solid #fff;
+  box-shadow: 0 4px 0 var(--st-ink, var(--lip)), 0 0 0 2px var(--st-ink, var(--lip)) inset;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.sticker-emoji {
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.sticker.rare {
+  border-color: var(--yellow);
+  box-shadow: 0 4px 0 var(--yellow-deep);
+}
+
+.rare-star {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 2;
+  color: var(--yellow-deep);
+  font-size: 0.85rem;
+  text-shadow: 0 1px 0 #fff;
+}
+
+.sticker.sparkly {
+  border-color: var(--pink);
+  box-shadow: 0 4px 0 var(--pink-deep);
+  animation: sparklyGlow 1.6s ease-in-out infinite;
+}
+
+@keyframes sparklyGlow {
+  0%, 100% { border-color: var(--pink); }
+  33% { border-color: var(--yellow); }
+  66% { border-color: var(--sky); }
+}
+
+/* a solid white band that sweeps across (flat, no gradients) */
+.shimmer {
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  width: 22%;
+  left: -40%;
+  background: rgba(255, 255, 255, 0.75);
+  transform: skewX(-20deg);
+  z-index: 2;
+  animation: shimmerSweep 2.2s ease-in-out infinite;
+}
+
+@keyframes shimmerSweep {
+  0% { left: -40%; }
+  55%, 100% { left: 130%; }
+}
+
+.twinkle {
+  position: absolute;
+  z-index: 3;
+  color: var(--yellow);
+  text-shadow: 0 1px 0 var(--yellow-deep);
+  font-size: 0.9rem;
+  animation: twinkle 1.4s ease-in-out infinite;
+}
+
+.twinkle.t1 {
+  top: 6%;
+  left: 10%;
+}
+
+.twinkle.t2 {
+  bottom: 8%;
+  right: 10%;
+  animation-delay: -0.7s;
+}
+
+@keyframes twinkle {
+  0%, 100% { scale: 0.4; opacity: 0.3; rotate: 0deg; }
+  50% { scale: 1.2; opacity: 1; rotate: 45deg; }
+}
+
+.album-head h3 {
+  margin: 0;
+}
+
+.album-icon {
+  font-size: 2.6rem;
+  display: inline-block;
+}
+
+.rarity-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rarity-chip {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: #eef4fa;
+  color: var(--navy);
+  box-shadow: 0 3px 0 #d8e4f0;
+}
+
+.rarity-chip.rare {
+  background: var(--yellow-soft);
+  box-shadow: 0 3px 0 #f1d777;
+  color: #9a7a00;
+}
+
+.rarity-chip.sparkly {
+  background: var(--pink-soft);
+  box-shadow: 0 3px 0 #f5b3cf;
+  color: var(--pink-deep);
+}
+
+.rarity-chip.new {
+  background: var(--pink);
+  color: #fff;
+  box-shadow: 0 3px 0 var(--pink-deep);
+}
+
+.album-book {
+  perspective: 1200px;
+}
+
+.album-page {
+  position: relative;
+  background: var(--page, #fff);
+  border-radius: 28px;
+  border: 6px solid #fff;
+  box-shadow: 0 6px 0 var(--page-ink, var(--lip));
+  padding: 16px 14px 22px;
+  color: var(--navy);
+  transform-style: preserve-3d;
+}
+
+.album-page-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.album-page-head strong {
+  font-size: 1.4rem;
+  color: var(--page-ink, var(--navy));
+  flex: 1;
+}
+
+.album-page-head small {
+  background: #fff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-weight: 700;
+}
+
+.album-page-emoji {
+  font-size: 2rem;
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 14px;
+}
+
+.sticker-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border-radius: 22px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--navy);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-align: center;
+  min-height: 128px;
+}
+
+.sticker-slot.locked {
+  border: 3px dashed rgba(47, 74, 138, 0.18);
+  background: transparent;
+  color: rgba(47, 74, 138, 0.35);
+}
+
+.sticker-silhouette {
+  font-size: 2.6rem;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  filter: brightness(0);
+  opacity: 0.13;
+}
+
+.slot-q {
+  position: absolute;
+  top: 34px;
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: rgba(47, 74, 138, 0.3);
+}
+
+.slot-art {
+  display: inline-flex;
+}
+
+.sticker-count {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  padding: 2px 7px;
+  box-shadow: 0 2px 0 var(--navy-deep);
+}
+
+.peel-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: 22px;
+  background: var(--pink);
+  box-shadow: 0 4px 0 var(--pink-deep);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.peel-q {
+  font-size: 2.4rem;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 3px 0 var(--pink-deep);
+}
+
+.peel-text {
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+/* the curled-up corner, inviting a tap */
+.peel-corner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  background: #fff;
+  clip-path: polygon(100% 0, 0 100%, 0 0);
+  box-shadow: none;
+  border-top-left-radius: 8px;
+  animation: cornerFlap 1.4s ease-in-out infinite;
+  transform-origin: 100% 100%;
+}
+
+.peel-corner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--pink-soft);
+  clip-path: polygon(100% 0, 0 100%, 0 0);
+}
+
+@keyframes cornerFlap {
+  0%, 100% { scale: 1; }
+  50% { scale: 1.25; }
+}
+
+.peel-pop {
+  position: absolute;
+  top: 20px;
+  z-index: 5;
+  background: var(--navy);
+  color: #fff;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.page-complete {
+  position: absolute;
+  right: -6px;
+  bottom: -14px;
+  background: var(--yellow);
+  color: var(--navy);
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 0 var(--yellow-deep);
+}
+
+.album-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.album-dots {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.album-dot {
+  position: relative;
+  border: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 1.1rem;
+  opacity: 0.7;
+  transition: scale 0.25s var(--spring-big), opacity 0.2s;
+}
+
+.album-dot.on {
+  background: #fff;
+  opacity: 1;
+  scale: 1.18;
+  box-shadow: 0 3px 0 var(--lip);
+}
+
+.album-dot.new::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pink);
+  border: 2px solid #fff;
+}
+
+.sticker-zoom {
+  background: #fff;
+  border-radius: 34px;
+  box-shadow: 0 8px 0 rgba(34, 56, 110, 0.35);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--navy);
+  text-align: center;
+  perspective: 600px;
+  max-width: 360px;
+  width: 100%;
+}
+
+.sticker-zoom h2 {
+  margin: 8px 0 0;
+}
+
+.sticker-zoom p {
+  margin: 0;
+}
+
+/* ---------- Sticker teaser on Home ---------- */
+
+.sticker-teaser {
+  background: var(--purple-soft) !important;
+  box-shadow: 0 5px 0 #cdbcf7 !important;
+}
+
+.teaser-fan {
+  position: relative;
+  width: 92px;
+  height: 64px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.teaser-sticker {
+  position: absolute;
+  display: inline-flex;
+}
+
+.teaser-empty {
+  font-size: 2.6rem;
+}
+
+/* ---------- Trophy / album switch ---------- */
+
+.trophy-switch {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 520px) {
+  .mood-pick {
+    flex-basis: 54px;
+  }
+  .sticker-grid {
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  }
+  .spin-title {
+    font-size: 1.8rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer,
+  .twinkle,
+  .bulb,
+  .spin-rays,
+  .peel-corner,
+  .sticker.sparkly {
+    animation: none;
+  }
+}

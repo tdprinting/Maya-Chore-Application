@@ -73,7 +73,11 @@ export function Chat({ side }: { side: ChatMessage['from'] }) {
 
   const send = async (body: string, sticker?: string) => {
     if (!body.trim() && !sticker) return
-    sounds.pop()
+    if (sticker) sounds.sparkle()
+    else {
+      sounds.pop()
+      setTimeout(() => sounds.boing(), 60)
+    }
     setText('')
     setShowStickers(false)
     try {
@@ -135,7 +139,12 @@ export function Chat({ side }: { side: ChatMessage['from'] }) {
                 {showName && !mine && <span className="chat-author">{m.author}</span>}
                 {m.photo && <Photo src={m.photo} alt={m.text || 'Drawing'} className="chat-photo" />}
                 {m.sticker ? (
-                  <motion.span className="chat-sticker" animate={{ rotate: [0, -12, 12, 0] }} transition={{ duration: 0.8 }}>
+                  <motion.span
+                    className="chat-sticker"
+                    initial={{ scale: 0.3 }}
+                    animate={{ scale: [0.3, 1.35, 1], rotate: [0, -14, 12, -6, 0] }}
+                    transition={{ duration: 0.8 }}
+                  >
                     {m.sticker}
                   </motion.span>
                 ) : (
@@ -151,17 +160,26 @@ export function Chat({ side }: { side: ChatMessage['from'] }) {
 
       <div className="chat-quick">
         {(side === 'kid' ? QUICK_KID : QUICK_PARENT).map((q) => (
-          <button type="button" key={q} className="chip" onClick={() => send(q)}>
+          <motion.button type="button" key={q} className="chip" whileTap={{ scale: 0.9, rotate: -2 }} onClick={() => send(q)}>
             {q}
-          </button>
+          </motion.button>
         ))}
       </div>
 
       <AnimatePresence>
         {showStickers && (
           <motion.div className="sticker-tray" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}>
-            {STICKERS.map((s) => (
-              <motion.button type="button" key={s} whileTap={{ scale: 1.4 }} onClick={() => send('', s)}>
+            {STICKERS.map((s, i) => (
+              <motion.button
+                type="button"
+                key={s}
+                initial={{ scale: 0, rotate: -30 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: 'spring', stiffness: 500, damping: 14, delay: i * 0.025 }}
+                whileHover={{ scale: 1.2, rotate: [0, -10, 10, 0] }}
+                whileTap={{ scale: 1.4 }}
+                onClick={() => send('', s)}
+              >
                 {s}
               </motion.button>
             ))}
@@ -176,9 +194,20 @@ export function Chat({ side }: { side: ChatMessage['from'] }) {
           void send(text)
         }}
       >
-        <button type="button" className="btn ghost sticker-btn" onClick={() => setShowStickers((v) => !v)} aria-label="Stickers">
+        <motion.button
+          type="button"
+          className="btn ghost sticker-btn"
+          onClick={() => {
+            sounds.blip()
+            setShowStickers((v) => !v)
+          }}
+          aria-label="Stickers"
+          animate={{ rotate: showStickers ? [0, -15, 12, 0] : 0, scale: showStickers ? 1.12 : 1 }}
+          transition={{ duration: 0.45 }}
+          whileTap={{ scale: 0.8 }}
+        >
           😺
-        </button>
+        </motion.button>
         <input className="input" value={text} placeholder="Type a message…" onChange={(e) => setText(e.target.value)} maxLength={500} />
         <motion.button type="submit" className="btn go" whileTap={{ scale: 0.85 }} disabled={!text.trim()}>
           Send

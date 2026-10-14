@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Chat, useUnreadCount } from '../Chat'
 import type { MascotMood } from '../art/Mascot'
 import { Icon } from '../art/Icons'
@@ -23,12 +23,17 @@ import {
 import { useStore } from '../store'
 import type { Chore, Order, Prize, Submission } from '../types'
 import { DAY_FULL, safeUrl, timeAgo } from '../util'
+import { SpinCard } from '../fun/LuckySpin'
+import { MoodCheckIn } from '../fun/Mood'
+import { StickerAlbum, StickerTeaser } from '../fun/StickerAlbum'
+import { loadSeenStickers, stickerFor, RARITY_LABEL } from '../fun/stickers'
 
 type KidTab = 'home' | 'chores' | 'bonus' | 'school' | 'shop' | 'draw' | 'chat' | 'trophies'
 
 export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
   const { data, actions, events, dismissEvent } = useStore()
   const [tab, setTab] = useState<KidTab>('home')
+  const [trophyView, setTrophyView] = useState<'trophies' | 'stickers'>('trophies')
   const tabRef = useRef(tab)
   tabRef.current = tab
   const unread = useUnreadCount('kid')
@@ -58,6 +63,17 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
           react('cheer', 'Woohoo! Stars for you!')
           setFloating({ id: uid(), text: `+${item.pointsAwarded} ⭐` })
           pushToast({ emoji: '🎉', title: `Approved: ${item.title}!`, body: item.parentNote || `You earned ${item.pointsAwarded} stars!` })
+          // Every approval also brings a sticker for the album.
+          const st = stickerFor(item.id)
+          const again = loadSeenStickers().has(st.id)
+          setTimeout(() => {
+            sounds.unlock()
+            pushToast({
+              emoji: st.emoji,
+              title: again ? `Another ${st.name} sticker!` : `New ${st.rarity === 'common' ? '' : `${RARITY_LABEL[st.rarity]} `}sticker: ${st.name}!`,
+              body: again ? 'Stack them up in your Sticker Album 📒' : 'Peel it in your Sticker Album 📒',
+            })
+          }, 1200)
         } else if (item.status === 'rejected') {
           sounds.pop()
           pushToast({ emoji: '🔁', title: `Let's try again: ${item.title}`, body: item.parentNote || 'Check with Mom or Dad.' })
@@ -154,7 +170,17 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
       <main className="kid-main">
         <AnimatePresence mode="wait">
           <motion.div key={tab} initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.25 }}>
-            {tab === 'home' && <KidHome goTo={setTab} />}
+            {tab === 'home' && (
+              <KidHome
+                goTo={setTab}
+                react={react}
+                onSpinWin={(n) => setFloating({ id: uid(), text: `+${n} ⭐` })}
+                openAlbum={() => {
+                  setTrophyView('stickers')
+                  setTab('trophies')
+                }}
+              />
+            )}
             {tab === 'chores' && <KidChores onEarned={onEarned} />}
             {tab === 'bonus' && <KidBonus onEarned={onEarned} />}
             {tab === 'school' && <KidSchool onEarned={onEarned} />}
@@ -169,11 +195,18 @@ export function KidApp({ onGrownUps }: { onGrownUps: () => void }) {
               />
             )}
             {tab === 'chat' && <Chat side="kid" />}
-            {tab === 'trophies' && <KidTrophies />}
+            {tab === 'trophies' && <KidTrophies view={trophyView} setView={setTrophyView} />}
           </motion.div>
         </AnimatePresence>
       </main>
-      <TabBar tabs={tabs} current={tab} onChange={(t) => (sounds.pop(), setTab(t))} />
+      <TabBar
+        tabs={tabs}
+        current={tab}
+        onChange={(t) => {
+          if (t === 'trophies') setTrophyView('trophies')
+          setTab(t)
+        }}
+      />
       {tab !== 'draw' && <Buddy mood={buddy.mood} say={buddy.say} sayKey={buddy.id} onTap={() => react(pick(['love', 'cheer', 'wink', 'wow'] as MascotMood[]), pick(BUDDY_LINES))} />}
       <Toasts toasts={toasts} onDismiss={dismissToast} />
       {floating && <FloatingPoints key={floating.id} text={floating.text} onDone={() => setFloating(null)} />}
@@ -217,7 +250,17 @@ function Buddy({ mood, say, sayKey, onTap }: { mood: MascotMood; say?: string; s
   )
 }
 
-function KidHome({ goTo }: { goTo: (t: KidTab) => void }) {
+function KidHome({
+  goTo,
+  react,
+  openAlbum,
+  onSpinWin,
+}: {
+  goTo: (t: KidTab) => void
+  react: (mood: MascotMood, say?: string) => void
+  openAlbum: () => void
+  onSpinWin: (stars: number) => void
+}) {
   const { data } = useStore()
   const s = data.settings
   const today = dayKey()
@@ -252,6 +295,18 @@ function KidHome({ goTo }: { goTo: (t: KidTab) => void }) {
           <p>{note.text}</p>
         </motion.section>
       )}
+
+      <div className="fun-row">
+        <SpinCard
+          onWin={(n) => {
+            onSpinWin(n)
+            react(n >= 7 ? 'wow' : 'cheer', n >= 7 ? `${n} stars?! WOW!` : `+${n} lucky stars!`)
+          }}
+        />
+        <StickerTeaser onOpen={openAlbum} />
+      </div>
+
+      <MoodCheckIn onCheckedIn={(level, reply) => react(level <= 2 ? 'love' : 'cheer', reply)} />
 
       <div className="grid-2">
         <button type="button" className="card stat-card pink" onClick={() => goTo('chores')}>
@@ -785,7 +840,30 @@ function WishModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   )
 }
 
-function KidTrophies() {
+function KidTrophies({ view, setView }: { view: 'trophies' | 'stickers'; setView: (v: 'trophies' | 'stickers') => void }) {
+  const switcher = (
+    <div className="seg trophy-switch">
+      <button type="button" className={view === 'trophies' ? 'on' : ''} onClick={() => setView('trophies')}>
+        🏆 Trophies
+      </button>
+      <button type="button" className={view === 'stickers' ? 'on' : ''} onClick={() => setView('stickers')}>
+        📒 Sticker Album
+      </button>
+    </div>
+  )
+  if (view === 'stickers') {
+    return (
+      <div className="stack">
+        <h2 className="section-title">📒 My Stickers</h2>
+        {switcher}
+        <StickerAlbum />
+      </div>
+    )
+  }
+  return <TrophyCase switcher={switcher} />
+}
+
+function TrophyCase({ switcher }: { switcher: ReactNode }) {
   const { data, actions } = useStore()
   const days = streak(data.submissions)
   const lifetime = lifetimeEarned(data.ledger)
@@ -795,6 +873,7 @@ function KidTrophies() {
   return (
     <div className="stack">
       <h2 className="section-title">🏆 My Trophies</h2>
+      {switcher}
       <section className="card level-card">
         <motion.div className="level-emoji" animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2.5 }}>
           {level.emoji}

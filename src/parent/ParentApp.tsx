@@ -3,10 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chat, useUnreadCount } from '../Chat'
 import { ConfirmButton, Empty, Modal, Photo, Stars, TabBar, Toasts, type Tab, type Toast } from '../components'
 import { sounds } from '../fx'
-import { EFFORT_LABELS, STARS_PER_DOLLAR, dayKey, nowIso, sameWeek, streak, weekStartKey, pointsFor, suggestPhotoBonus, suggestPoints, suggestPrizePoints, uid } from '../logic'
+import { EFFORT_LABELS, STARS_PER_DOLLAR, dayKey, moodInfo, nowIso, sameWeek, streak, weekStartKey, pointsFor, suggestPhotoBonus, suggestPoints, suggestPrizePoints, uid } from '../logic'
 import { CATEGORY_LABELS, EMOJI_CHOICES } from '../seed'
 import { useStore } from '../store'
 import { DevMode } from './DevMode'
+import { ParentMoodCard } from '../fun/Mood'
 import { quoteFor, tipFor } from './tips'
 import type { Chore, ChoreCategory, Effort, Order, Prize, Submission, Wish } from '../types'
 import { DAY_FULL, DAY_NAMES, hashPin, money, safeUrl, setBadge, timeAgo } from '../util'
@@ -50,9 +51,20 @@ export function ParentApp({ onKidView, canLeaveToKid }: { onKidView: () => void;
         else toast = { emoji: '💬', title: `${kid} says:`, body: it.sticker ?? it.text }
       } else if (it.kind === 'wish' && !ev.previous) {
         toast = { emoji: '💭', title: `${kid} wished for ${it.title}`, body: 'Review it in the Inbox.' }
+      } else if (it.kind === 'mood' && (!ev.previous || (ev.previous.kind === 'mood' && ev.previous.mood !== it.mood))) {
+        const m = moodInfo(it.mood)
+        toast = {
+          emoji: m.emoji,
+          title: ev.previous ? `${kid} changed her mood: ${m.label.toLowerCase()}` : `${kid} is feeling ${m.label.toLowerCase()} today`,
+          body: it.note ? `“${it.note}”` : 'See her week of feelings in the Inbox.',
+        }
+      } else if (it.kind === 'ledger' && !ev.previous && it.refId?.startsWith('spin:')) {
+        toast = { emoji: '🎡', title: `${kid} spun the Lucky Wheel!`, body: `She won +${it.amount} bonus stars.` }
       }
       if (toast) {
-        sounds.ding()
+        if (it.kind === 'mood') sounds.meow()
+        else if (it.kind === 'ledger') sounds.coin()
+        else sounds.ding()
         const t = toast
         setToasts((ts) => [...ts, { ...t, id: uid() }])
         if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
@@ -175,6 +187,7 @@ function Inbox() {
   const nothing = !subs.length && !orders.length && !wishes.length
   return (
     <div className="stack">
+      <ParentMoodCard />
       {nothing && <Empty emoji="🌴">All caught up! New chores, prize picks and wishes from {data.settings.kidName} show up here instantly.</Empty>}
       {subs.length > 0 && (
         <div className="row">
