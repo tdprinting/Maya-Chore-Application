@@ -5,6 +5,7 @@ import { sounds } from '../fx'
 import { EFFORT_LABELS, STARS_PER_DOLLAR, nowIso, pointsFor, suggestPhotoBonus, suggestPoints, suggestPrizePoints, uid } from '../logic'
 import { CATEGORY_LABELS, EMOJI_CHOICES } from '../seed'
 import { useStore } from '../store'
+import { DevMode } from './DevMode'
 import type { Chore, ChoreCategory, Effort, Order, Prize, Submission, Wish } from '../types'
 import { DAY_FULL, DAY_NAMES, hashPin, money, safeUrl, setBadge, timeAgo } from '../util'
 
@@ -737,6 +738,7 @@ function Family() {
   const [pin, setPin] = useState('')
   const [pinSaved, setPinSaved] = useState(false)
   const [codes, setCodes] = useState<{ parentCode: string; kidCode: string } | null>(null)
+  const [devOpen, setDevOpen] = useState(false)
   const [notifyState, setNotifyState] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported')
   useEffect(() => {
     backend.familyCodes().then(setCodes).catch(() => setCodes(null))
@@ -893,6 +895,14 @@ function Family() {
           </div>
         ))}
       </section>
+
+      {devOpen ? (
+        <DevMode />
+      ) : (
+        <button type="button" className="btn ghost" onClick={() => setDevOpen(true)}>
+          🛠️ Open dev mode
+        </button>
+      )}
 
       <button
         type="button"

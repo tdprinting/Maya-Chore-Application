@@ -1508,3 +1508,28 @@ a {
     animation-iteration-count: 1 !important;
   }
 }
+
+.dev-mode {
+  border: 2px dashed #c9b8e8;
+}
+
+.dev-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.dev-grid .btn {
+  font-size: 0.9rem;
+  padding: 10px 8px;
+}
+
+.dev-msg {
+  position: sticky;
+  bottom: 90px;
+  background: #2a2d43;
+  color: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 600;
+}
